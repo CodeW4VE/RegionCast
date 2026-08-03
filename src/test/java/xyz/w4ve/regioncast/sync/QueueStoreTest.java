@@ -24,7 +24,7 @@ class QueueStoreTest {
 	@Test
 	@DisplayName("a queue survives a restart")
 	void roundTrips() throws IOException {
-		QueueStore store = new QueueStore(dir.resolve("queue.txt"));
+		QueueStore<RegionKey> store = QueueStore.forRegions(dir.resolve("queue.txt"));
 		List<RegionKey> picked = List.of(
 				new RegionKey(Dim.NETHER, -5, -1),
 				new RegionKey(Dim.NETHER, -6, 0),
@@ -38,7 +38,7 @@ class QueueStoreTest {
 	@Test
 	@DisplayName("the order regions were picked in is kept")
 	void keepsOrder() throws IOException {
-		QueueStore store = new QueueStore(dir.resolve("queue.txt"));
+		QueueStore<RegionKey> store = QueueStore.forRegions(dir.resolve("queue.txt"));
 		Set<RegionKey> picked = new LinkedHashSet<>();
 		for (int x = 5; x >= 0; x--) {
 			picked.add(new RegionKey(Dim.END, x, 0));
@@ -54,13 +54,13 @@ class QueueStoreTest {
 	@Test
 	@DisplayName("no queue file means an empty queue, not a failure")
 	void missingFileIsEmpty() throws IOException {
-		assertTrue(new QueueStore(dir.resolve("nope.txt")).load().isEmpty());
+		assertTrue(QueueStore.forRegions(dir.resolve("nope.txt")).load().isEmpty());
 	}
 
 	@Test
 	@DisplayName("an emptied queue is written out, not left behind")
 	void savingEmptyClearsIt() throws IOException {
-		QueueStore store = new QueueStore(dir.resolve("queue.txt"));
+		QueueStore<RegionKey> store = QueueStore.forRegions(dir.resolve("queue.txt"));
 		store.save(List.of(new RegionKey(Dim.OVERWORLD, 1, 1)));
 
 		store.save(List.of());
@@ -80,7 +80,7 @@ class QueueStoreTest {
 				"99 0 0",
 				"-1 -6 0"));
 
-		List<RegionKey> loaded = new QueueStore(file).load();
+		List<RegionKey> loaded = QueueStore.forRegions(file).load();
 
 		assertEquals(List.of(
 				new RegionKey(Dim.OVERWORLD, 1, 2),
@@ -93,13 +93,13 @@ class QueueStoreTest {
 		Path file = dir.resolve("queue.txt");
 		Files.write(file, List.of("0 1 2", "0 1 2", "0 1 2"));
 
-		assertEquals(1, new QueueStore(file).load().size());
+		assertEquals(1, QueueStore.forRegions(file).load().size());
 	}
 
 	@Test
 	@DisplayName("same coordinates in different dimensions stay separate")
 	void dimensionsAreDistinct() throws IOException {
-		QueueStore store = new QueueStore(dir.resolve("queue.txt"));
+		QueueStore<RegionKey> store = QueueStore.forRegions(dir.resolve("queue.txt"));
 		store.save(List.of(
 				new RegionKey(Dim.OVERWORLD, 0, 0),
 				new RegionKey(Dim.NETHER, 0, 0),
@@ -111,7 +111,7 @@ class QueueStoreTest {
 	@Test
 	@DisplayName("no leftover temp file")
 	void leavesNoTempFile() throws IOException {
-		QueueStore store = new QueueStore(dir.resolve("queue.txt"));
+		QueueStore<RegionKey> store = QueueStore.forRegions(dir.resolve("queue.txt"));
 		store.save(List.of(new RegionKey(Dim.OVERWORLD, 0, 0)));
 		assertFalse(Files.exists(dir.resolve("queue.txt.tmp")));
 	}
@@ -119,7 +119,7 @@ class QueueStoreTest {
 	@Test
 	@DisplayName("saving creates the folder if it is not there")
 	void createsParentFolder() throws IOException {
-		QueueStore store = new QueueStore(dir.resolve("config/regioncast/queue.txt"));
+		QueueStore<RegionKey> store = QueueStore.forRegions(dir.resolve("config/regioncast/queue.txt"));
 		store.save(List.of());
 		assertTrue(Files.isRegularFile(store.file()));
 	}

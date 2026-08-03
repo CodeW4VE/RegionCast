@@ -3,6 +3,7 @@ package xyz.w4ve.regioncast.client.map;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import xyz.w4ve.regioncast.client.RegionCastClient;
+import xyz.w4ve.regioncast.model.ChunkKey;
 import xyz.w4ve.regioncast.model.Dim;
 import xyz.w4ve.regioncast.model.RegionKey;
 import xyz.w4ve.regioncast.model.RegionStatus;
@@ -25,12 +26,21 @@ public final class MapView {
 	/** Amber: waiting in the queue. */
 	private static final int COLOUR_QUEUED = 0xFFB030;
 
+	/**
+	 * Pixels a chunk has to be worth before chunks become the thing you are clicking.
+	 *
+	 * <p>Eight is small but hittable, and it lands at a zoom where a whole region still fits on
+	 * screen, so the switch happens while you can still see where you are.
+	 */
+	private static final int CHUNK_PIXELS_TO_SELECT = 8;
+
 	private double centerX;
 	private double centerZ;
 	private double zoom = 0.12;
 	private boolean centred;
 	private boolean showGrid = true;
 	private RegionKey hovered;
+	private ChunkKey hoveredChunk;
 
 	public boolean showGrid() {
 		return showGrid;
@@ -42,6 +52,21 @@ public final class MapView {
 
 	public RegionKey hovered() {
 		return hovered;
+	}
+
+	public ChunkKey hoveredChunk() {
+		return hoveredChunk;
+	}
+
+	/**
+	 * True when the map is zoomed in far enough that clicking picks a single chunk.
+	 *
+	 * <p>One gesture, two meanings, decided by how close you are. That is the only way it can
+	 * work without a mode button: at this zoom a region is 256 pixels across and clicking one
+	 * whole would be a click you could not aim, and zoomed out a chunk is a pixel.
+	 */
+	public boolean chunkMode() {
+		return ChunkKey.BLOCKS * zoom >= CHUNK_PIXELS_TO_SELECT;
 	}
 
 	public double zoom() {
@@ -104,6 +129,16 @@ public final class MapView {
 				(int) Math.floor(screenToWorldZ(mouseY, y, height)));
 	}
 
+	/** The chunk under the cursor, or null when the cursor is outside the map area. */
+	public ChunkKey chunkAt(Dim dim, double mouseX, double mouseY, int x, int y, int width, int height) {
+		if (dim == null || mouseX < x || mouseX > x + width || mouseY < y || mouseY > y + height) {
+			return null;
+		}
+		return ChunkKey.ofBlock(dim,
+				(int) Math.floor(screenToWorldX(mouseX, x, width)),
+				(int) Math.floor(screenToWorldZ(mouseY, y, height)));
+	}
+
 	// ------------------------------------------------------------------ render
 
 	public void render(GuiGraphics graphics, Dim dim,
@@ -113,9 +148,13 @@ public final class MapView {
 		drawTiles(graphics, x, y, width, height);
 
 		hovered = regionAt(dim, mouseX, mouseY, x, y, width, height);
+		hoveredChunk = chunkMode() ? chunkAt(dim, mouseX, mouseY, x, y, width, height) : null;
 
 		if (showGrid && dim != null) {
 			drawRegions(graphics, dim, x, y, width, height);
+			if (chunkMode()) {
+				drawChunks(graphics, dim, x, y, width, height);
+			}
 		}
 
 		drawPlayer(graphics, x, y, width, height);
@@ -204,6 +243,49 @@ public final class MapView {
 					graphics.vLine(left, top, bottom - 1, edge);
 					graphics.vLine(right - 1, top, bottom - 1, edge);
 				}
+			}
+		}
+	}
+
+	/**
+	 * The chunk grid, drawn over the region colours once you are close enough to click chunks.
+	 *
+	 * <p>Only chunks with something to say are filled: picked, or already pulled across on their
+	 * own. Everything else gets a hairline, which is what tells you the click is now landing on a
+	 * chunk. The lines are faint on purpose, since a screen full of 1024 boxes per region is the
+	 * fastest way to make a map unreadable.
+	 */
+	private void drawChunks(GuiGraphics graphics, Dim dim, int x, int y, int width, int height) {
+		int minX = Math.floorDiv((int) Math.floor(screenToWorldX(x, x, width)), ChunkKey.BLOCKS);
+		int maxX = Math.floorDiv((int) Math.ceil(screenToWorldX(x + width, x, width)), ChunkKey.BLOCKS);
+		int minZ = Math.floorDiv((int) Math.floor(screenToWorldZ(y, y, height)), ChunkKey.BLOCKS);
+		int maxZ = Math.floorDiv((int) Math.ceil(screenToWorldZ(y + height, y, height)), ChunkKey.BLOCKS);
+
+		for (int chunkX = minX; chunkX <= maxX; chunkX++) {
+			for (int chunkZ = minZ; chunkZ <= maxZ; chunkZ++) {
+				ChunkKey chunk = new ChunkKey(dim, chunkX, chunkZ);
+				boolean queued = RegionCastClient.isQueued(chunk);
+				boolean copied = RegionCastClient.isCopied(chunk);
+				boolean isHovered = chunk.equals(hoveredChunk);
+
+				int left = (int) Math.round(worldToScreenX(chunk.minBlockX(), x, width));
+				int top = (int) Math.round(worldToScreenZ(chunk.minBlockZ(), y, height));
+				int right = (int) Math.round(worldToScreenX(chunk.maxBlockX() + 1.0, x, width));
+				int bottom = (int) Math.round(worldToScreenZ(chunk.maxBlockZ() + 1.0, y, height));
+
+				if (queued) {
+					graphics.fill(left, top, right, bottom, 0xA0000000 | COLOUR_QUEUED);
+				} else if (copied) {
+					// Green for brought across and still matching, red once the source moved on.
+					int colour = RegionCastClient.isChunkStale(chunk) ? COLOUR_STALE : COLOUR_IN_SYNC;
+					graphics.fill(left, top, right, bottom, 0x70000000 | colour);
+				} else if (isHovered) {
+					graphics.fill(left, top, right, bottom, 0x40FFFFFF);
+				}
+
+				int edge = isHovered ? 0xCCFFFFFF : 0x22FFFFFF;
+				graphics.hLine(left, right - 1, top, edge);
+				graphics.vLine(left, top, bottom - 1, edge);
 			}
 		}
 	}

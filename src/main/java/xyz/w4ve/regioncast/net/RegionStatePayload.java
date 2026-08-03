@@ -7,6 +7,8 @@ import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
 import xyz.w4ve.regioncast.RegionCast;
+import xyz.w4ve.regioncast.model.ChunkKey;
+import xyz.w4ve.regioncast.model.ChunkMask;
 import xyz.w4ve.regioncast.model.Dim;
 import xyz.w4ve.regioncast.model.RegionKey;
 import xyz.w4ve.regioncast.model.RegionStatus;
@@ -25,6 +27,8 @@ import xyz.w4ve.regioncast.sync.BackupStore;
  *
  * @param entries regions that are not in sync, with what is wrong with each
  * @param queued regions currently waiting to be copied, in order
+ * @param queuedChunks single chunks waiting to be copied, for the ones picked at close zoom
+ * @param partials regions holding chunks that were pulled across on their own
  * @param report human readable outcome of the last update, empty when there has not been one
  * @param backups the updates that can still be taken back, newest first. A handful of rows at
  *     most, so they ride along with every state packet instead of needing a channel of their own.
@@ -32,20 +36,35 @@ import xyz.w4ve.regioncast.sync.BackupStore;
  *     client side screen. Keeps the whole mod behind a single {@code /rc} instead of needing a
  *     separate client command that would collide with it.
  */
-public record RegionStatePayload(List<Entry> entries, List<RegionKey> queued, String report,
+public record RegionStatePayload(List<Entry> entries, List<RegionKey> queued,
+		List<ChunkKey> queuedChunks, List<Partial> partials, String report,
 		List<BackupStore.Snapshot> backups, boolean openMap)
 		implements CustomPacketPayload {
 
 	/** Sanity bound on the backup list coming off the wire. The default keeps three. */
 	private static final int MAX_BACKUPS = 64;
+	/** Sanity bound on partially copied regions. Well past anything a person clicks by hand. */
+	private static final int MAX_PARTIALS = 4096;
 
-	public RegionStatePayload(List<Entry> entries, List<RegionKey> queued, String report,
+	public RegionStatePayload(List<Entry> entries, List<RegionKey> queued,
+			List<ChunkKey> queuedChunks, List<Partial> partials, String report,
 			List<BackupStore.Snapshot> backups) {
-		this(entries, queued, report, backups, false);
+		this(entries, queued, queuedChunks, partials, report, backups, false);
 	}
 
 	/** One region and why the map should colour it. */
 	public record Entry(RegionKey region, RegionStatus status) {
+	}
+
+	/**
+	 * A region with chunks copied into it one at a time.
+	 *
+	 * @param copied which of its 1024 chunks came across on their own
+	 * @param stale which of those the source has changed since. A subset of {@code copied}, and
+	 *     always all or nothing per region in practice, because the source only timestamps whole
+	 *     region files.
+	 */
+	public record Partial(RegionKey region, ChunkMask copied, ChunkMask stale) {
 	}
 
 	public static final CustomPacketPayload.Type<RegionStatePayload> TYPE =
@@ -56,7 +75,51 @@ public record RegionStatePayload(List<Entry> entries, List<RegionKey> queued, St
 			CustomPacketPayload.codec(RegionStatePayload::write, RegionStatePayload::new);
 
 	private RegionStatePayload(FriendlyByteBuf buf) {
-		this(readEntries(buf), readRegions(buf), buf.readUtf(), readBackups(buf), buf.readBoolean());
+		this(readEntries(buf), readRegions(buf), readChunks(buf), readPartials(buf),
+				buf.readUtf(), readBackups(buf), buf.readBoolean());
+	}
+
+	private static List<ChunkKey> readChunks(FriendlyByteBuf buf) {
+		int size = buf.readVarInt();
+		List<ChunkKey> list = new ArrayList<>(Math.min(size, 1024));
+		for (int i = 0; i < size; i++) {
+			list.add(readChunk(buf));
+		}
+		return list;
+	}
+
+	private static List<Partial> readPartials(FriendlyByteBuf buf) {
+		int size = Math.min(buf.readVarInt(), MAX_PARTIALS);
+		List<Partial> list = new ArrayList<>(size);
+		for (int i = 0; i < size; i++) {
+			list.add(new Partial(readRegion(buf), readMask(buf), readMask(buf)));
+		}
+		return list;
+	}
+
+	private static ChunkMask readMask(FriendlyByteBuf buf) {
+		long[] bits = new long[ChunkMask.LONGS];
+		for (int i = 0; i < bits.length; i++) {
+			bits[i] = buf.readLong();
+		}
+		return new ChunkMask(bits);
+	}
+
+	private static void writeMask(FriendlyByteBuf buf, ChunkMask mask) {
+		for (long word : mask.bits()) {
+			buf.writeLong(word);
+		}
+	}
+
+	static ChunkKey readChunk(FriendlyByteBuf buf) {
+		Dim dim = Dim.byIndex(buf.readByte());
+		return new ChunkKey(dim, buf.readVarInt(), buf.readVarInt());
+	}
+
+	static void writeChunk(FriendlyByteBuf buf, ChunkKey chunk) {
+		buf.writeByte(chunk.dim().index());
+		buf.writeVarInt(chunk.x());
+		buf.writeVarInt(chunk.z());
 	}
 
 	private static List<BackupStore.Snapshot> readBackups(FriendlyByteBuf buf) {
@@ -114,6 +177,17 @@ public record RegionStatePayload(List<Entry> entries, List<RegionKey> queued, St
 		buf.writeVarInt(queued.size());
 		for (RegionKey region : queued) {
 			writeRegion(buf, region);
+		}
+		buf.writeVarInt(queuedChunks.size());
+		for (ChunkKey chunk : queuedChunks) {
+			writeChunk(buf, chunk);
+		}
+		int partialCount = Math.min(partials.size(), MAX_PARTIALS);
+		buf.writeVarInt(partialCount);
+		for (Partial partial : partials.subList(0, partialCount)) {
+			writeRegion(buf, partial.region());
+			writeMask(buf, partial.copied());
+			writeMask(buf, partial.stale());
 		}
 		buf.writeUtf(report);
 		buf.writeVarInt(Math.min(backups.size(), MAX_BACKUPS));

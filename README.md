@@ -44,6 +44,30 @@ coordinates and hoping you got the right file.
   `save-on` afterwards, with retries, because leaving somebody else's server with saving off is
   worse than anything this mod was trying to do.
 
+## Chunks, when a whole region is more than you wanted
+
+Zoom in far enough and the grid switches from regions to chunks, and clicking picks a single
+chunk. No mode button: at that zoom a region is wider than the screen, and zoomed out a chunk is a
+pixel, so the gesture can only mean one thing at a time.
+
+Loose chunks are copied differently to whole regions. A region is a file copy. A chunk is opened
+out of the source's region file and written into ours, using Minecraft's own `RegionFile`, so the
+result is byte for byte what the game would have written itself. What that buys you is taking one
+build across without the 512 blocks of terrain it shares a file with.
+
+What it costs:
+
+- **Lighting and anything crossing a chunk border** arrives half done until the game recalculates
+  it. It does, but it is visible for a moment, mostly in caves.
+- **Slower per block**: every chunk is decompressed and recompressed, and the source region file
+  is copied to a work folder first (`RegionFile` insists on opening its file for writing, and the
+  source is supposed to be mounted read only). Still seconds, not minutes.
+- **The source only timestamps whole region files**, so a chunk can only be judged against that.
+  A change anywhere in a region marks every chunk you took out of it as out of date, even ones
+  nobody touched. Wrong in the direction that tells you to look.
+
+Copied chunks are painted green, red once the source moves on, gold while queued.
+
 ## Backups
 
 Every update sets aside the region files it is about to replace. The last **3** updates stay
@@ -148,9 +172,11 @@ Anything that watches for that can start the server again. A ready made
 ## Using it
 
 ```
-/rc                  what is out of date, what is queued, what backups exist
+/rc                  open the map, or print the status if you cannot open one
 /rc map              open the map (needs the client mod)
+/rc status           what is out of date, what is queued, what backups exist
 /rc here             queue the region you are standing in
+/rc here chunk       queue only the chunk you are standing in
 /rc add <dim> <x> <z>  queue one by index, dimension -1, 0 or 1
 /rc scan             re-read the source
 /rc list             what is queued
@@ -160,8 +186,9 @@ Anything that watches for that can start the server again. A ready made
 /rc restore [n]      put one back, then restart
 ```
 
-On the map: **left click** a region to queue or unqueue it, **right click drag** to pan, **scroll**
-to zoom. Colours are red for changed since the last copy, blue for never copied, gold for queued.
+On the map: **left click** to queue or unqueue whatever you are pointing at, **right click drag**
+to pan, **scroll** to zoom. Zoomed out that is a region; zoomed in it is a chunk. Colours are red
+for changed since the last copy, blue for never copied, gold for queued.
 
 The queue survives a restart, so a server that went down for some other reason does not make you
 click forty regions again.
@@ -189,7 +216,9 @@ Needs JDK 21. The jar lands in `build/libs/`.
 
 The `model` and `sync` packages contain no Minecraft classes on purpose, so the copying, the
 ledger, the queue, the backups and the RCON protocol are all unit tested against temporary folders
-rather than a 13 GB world. 87 tests, run in CI on every push.
+rather than a 13 GB world. The one exception is `anvil`, which has to talk to Minecraft's own
+region file code, and is tested against real region files instead. 108 tests, run in CI on every
+push.
 
 ## License
 

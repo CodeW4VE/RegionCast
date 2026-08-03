@@ -4,12 +4,16 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import xyz.w4ve.regioncast.anvil.ChunkCopier;
+import xyz.w4ve.regioncast.model.ChunkKey;
+import xyz.w4ve.regioncast.model.ChunkMask;
 import xyz.w4ve.regioncast.model.Dim;
 import xyz.w4ve.regioncast.model.RegionKey;
 import xyz.w4ve.regioncast.model.RegionStatus;
@@ -46,13 +50,20 @@ public final class UpdateService {
 	private final RegionCastConfig config;
 	private final RegionScanner sourceScanner;
 	private final RegionCopier copier;
-	private final LedgerStore ledgerStore;
-	private final QueueStore queueStore;
+	private final ChunkCopier chunkCopier;
+	private final LedgerStore<RegionKey> ledgerStore;
+	private final LedgerStore<ChunkKey> chunkLedgerStore;
+	private final QueueStore<RegionKey> queueStore;
+	private final QueueStore<ChunkKey> chunkQueueStore;
 	private final BackupStore backups;
-	private final SyncLedger ledger;
+	private final SyncLedger<RegionKey> ledger;
+	/** Chunks pulled across on their own, against the source region file's time at the time. */
+	private final SyncLedger<ChunkKey> chunkLedger;
 
 	/** Insertion ordered, so regions are copied in the order they were clicked. */
 	private final Set<RegionKey> queue = new LinkedHashSet<>();
+	/** Chunks picked one by one, for when a whole region is more than you wanted. */
+	private final Set<ChunkKey> chunkQueue = new LinkedHashSet<>();
 	/** Last scan of the source, kept so the map can be repainted without hitting the disk again. */
 	private Map<Dim, Map<RegionKey, Long>> lastScan = new java.util.EnumMap<>(Dim.class);
 	private String lastReport = "";
@@ -60,22 +71,31 @@ public final class UpdateService {
 	/** Snapshot waiting to be put back on the way out, or null when the pending job is an update. */
 	private String restorePending;
 
-	public UpdateService(RegionCastConfig config, Path sourceWorld, Path destinationWorld,
-			Path ledgerFile, Path queueFile, Path backupDir) throws IOException {
+	public UpdateService(RegionCastConfig config, RegionCastPaths paths) throws IOException {
 		this.config = config;
-		this.sourceScanner = new RegionScanner(sourceWorld);
-		this.copier = new RegionCopier(sourceWorld, destinationWorld);
-		this.ledgerStore = new LedgerStore(ledgerFile);
+		this.sourceScanner = new RegionScanner(paths.sourceWorld());
+		this.copier = new RegionCopier(paths.sourceWorld(), paths.destinationWorld());
+		this.chunkCopier = new ChunkCopier(paths.sourceWorld(), paths.destinationWorld(),
+				paths.workDir());
+		this.ledgerStore = LedgerStore.forRegions(paths.ledgerFile());
 		this.ledger = ledgerStore.load();
-		this.queueStore = new QueueStore(queueFile);
-		this.backups = new BackupStore(backupDir, destinationWorld, config.backupKeep());
+		this.chunkLedgerStore = LedgerStore.forChunks(paths.chunkLedgerFile());
+		this.chunkLedger = chunkLedgerStore.load();
+		this.queueStore = QueueStore.forRegions(paths.queueFile());
+		this.chunkQueueStore = QueueStore.forChunks(paths.chunkQueueFile());
+		this.backups = new BackupStore(paths.backupDir(), paths.destinationWorld(),
+				config.backupKeep());
 		queue.addAll(queueStore.load());
-		LOGGER.info("Ledger loaded with {} regions from {}", ledger.size(), ledgerFile);
-		if (!queue.isEmpty()) {
-			LOGGER.info("Picked the queue back up with {} region(s) still in it", queue.size());
+		chunkQueue.addAll(chunkQueueStore.load());
+		LOGGER.info("Ledger loaded with {} region(s) and {} loose chunk(s)",
+				ledger.size(), chunkLedger.size());
+		if (!queue.isEmpty() || !chunkQueue.isEmpty()) {
+			LOGGER.info("Picked the queue back up with {} region(s) and {} chunk(s) still in it",
+					queue.size(), chunkQueue.size());
 		}
 		if (backups.enabled()) {
-			LOGGER.info("Keeping the last {} update(s) undoable in {}", backups.keep(), backupDir);
+			LOGGER.info("Keeping the last {} update(s) undoable in {}",
+					backups.keep(), paths.backupDir());
 		} else {
 			LOGGER.warn("Backups are off (backup_keep=0): an update cannot be taken back");
 		}
@@ -135,6 +155,38 @@ public final class UpdateService {
 		return entries;
 	}
 
+	/**
+	 * The regions holding chunks that were pulled across on their own, as two bit masks each.
+	 *
+	 * <p>Masks rather than a list of chunks: a region is 128 bytes to describe completely however
+	 * many of its 1024 chunks are involved, and the map only needs to know which squares to paint.
+	 */
+	public synchronized List<RegionStatePayload.Partial> partials() {
+		Map<RegionKey, ChunkMask> copied = new LinkedHashMap<>();
+		Map<RegionKey, ChunkMask> stale = new LinkedHashMap<>();
+
+		for (Map.Entry<ChunkKey, Long> entry : chunkLedger.asMap().entrySet()) {
+			RegionKey region = entry.getKey().region();
+			copied.computeIfAbsent(region, key -> new ChunkMask()).set(entry.getKey());
+			if (sourceTimeOf(region) > entry.getValue()) {
+				stale.computeIfAbsent(region, key -> new ChunkMask()).set(entry.getKey());
+			}
+		}
+
+		List<RegionStatePayload.Partial> partials = new ArrayList<>(copied.size());
+		for (Map.Entry<RegionKey, ChunkMask> entry : copied.entrySet()) {
+			partials.add(new RegionStatePayload.Partial(entry.getKey(), entry.getValue(),
+					stale.getOrDefault(entry.getKey(), new ChunkMask())));
+		}
+		return partials;
+	}
+
+	/** Source timestamp of a region from the last scan, without going back to the disk. */
+	private long sourceTimeOf(RegionKey region) {
+		Map<RegionKey, Long> perDim = lastScan.get(region.dim());
+		return perDim == null ? 0L : perDim.getOrDefault(region, 0L);
+	}
+
 	public synchronized List<RegionKey> queued() {
 		return List.copyOf(queue);
 	}
@@ -160,8 +212,15 @@ public final class UpdateService {
 		return backups.list();
 	}
 
+	public synchronized List<ChunkKey> queuedChunks() {
+		return List.copyOf(chunkQueue);
+	}
+
 	public synchronized void add(List<RegionKey> regions) {
 		queue.addAll(regions);
+		// A whole region covers every chunk in it, so holding on to the loose ones would only make
+		// the same work happen twice, slowly, right after it already happened.
+		regions.forEach(region -> chunkQueue.removeIf(chunk -> chunk.region().equals(region)));
 		saveQueue();
 	}
 
@@ -170,8 +229,25 @@ public final class UpdateService {
 		saveQueue();
 	}
 
+	public synchronized void addChunks(List<ChunkKey> chunks) {
+		for (ChunkKey chunk : chunks) {
+			// Already covered by its whole region: picking it changes nothing, so say so by
+			// leaving the queue alone rather than adding something that will be skipped.
+			if (!queue.contains(chunk.region())) {
+				chunkQueue.add(chunk);
+			}
+		}
+		saveQueue();
+	}
+
+	public synchronized void removeChunks(List<ChunkKey> chunks) {
+		chunks.forEach(chunkQueue::remove);
+		saveQueue();
+	}
+
 	public synchronized void clear() {
 		queue.clear();
+		chunkQueue.clear();
 		saveQueue();
 	}
 
@@ -184,6 +260,7 @@ public final class UpdateService {
 	private void saveQueue() {
 		try {
 			queueStore.save(queue);
+			chunkQueueStore.save(chunkQueue);
 		} catch (IOException e) {
 			LOGGER.error("Could not save the queue, it will not survive a restart", e);
 		}
@@ -198,7 +275,7 @@ public final class UpdateService {
 	 * @return null when the update can go ahead, or the reason it cannot
 	 */
 	public synchronized String whyNotReady() {
-		if (queue.isEmpty()) {
+		if (queue.isEmpty() && chunkQueue.isEmpty()) {
 			return "the queue is empty";
 		}
 		if (!sourceAvailable()) {
@@ -256,17 +333,19 @@ public final class UpdateService {
 
 	private String runUpdate() {
 		updatePending = false;
-		if (queue.isEmpty()) {
+		if (queue.isEmpty() && chunkQueue.isEmpty()) {
 			return "";
 		}
 		List<RegionKey> regions = List.copyOf(queue);
-		LOGGER.info("Copying {} region(s) from {}", regions.size(), copier.sourceWorld());
+		Map<RegionKey, Set<ChunkKey>> looseChunks = ChunkCopier.byRegion(chunkQueue);
+		LOGGER.info("Copying {} region(s) and {} chunk(s) from {}",
+				regions.size(), chunkQueue.size(), copier.sourceWorld());
 
 		BackupStore.Session snapshot = openSnapshot();
 		boolean savingHeld = holdSourceSaves();
 		int ok = 0;
 		int failed = 0;
-		List<CopyResult> results = new ArrayList<>(regions.size());
+		int chunksCopied = 0;
 		try {
 			for (RegionKey region : regions) {
 				// Backup first. A region whose old files could not be set aside is left alone:
@@ -276,7 +355,6 @@ public final class UpdateService {
 					continue;
 				}
 				CopyResult result = copier.copy(region);
-				results.add(result);
 				if (result.ok()) {
 					ok++;
 					if (result.sourceModifiedMillis() > 0) {
@@ -285,11 +363,26 @@ public final class UpdateService {
 						// The source no longer has it, so we no longer track it.
 						ledger.forget(region);
 					}
+					// The whole file just landed, so nothing in it is a loose chunk any more.
+					forgetChunksOf(region);
 					LOGGER.info("  {} copied {} deleted {}", region, result.filesCopied(), result.filesDeleted());
 				} else {
 					failed++;
 					LOGGER.error("  {} FAILED: {}", region, result.error());
 				}
+			}
+
+			for (Map.Entry<RegionKey, Set<ChunkKey>> entry : looseChunks.entrySet()) {
+				RegionKey region = entry.getKey();
+				if (queue.contains(region)) {
+					// Already came across whole in the pass above.
+					continue;
+				}
+				if (!capture(snapshot, region)) {
+					failed++;
+					continue;
+				}
+				chunksCopied += copyChunks(region, entry.getValue()) ? entry.getValue().size() : 0;
 			}
 		} finally {
 			if (savingHeld) {
@@ -301,12 +394,85 @@ public final class UpdateService {
 		saveLedger();
 
 		queue.clear();
+		chunkQueue.clear();
 		saveQueue();
-		lastReport = failed == 0
-				? ok + " region(s) updated"
-				: ok + " updated, " + failed + " failed, see the log";
+		lastReport = describe(ok, chunksCopied, failed);
 		LOGGER.info("RegionCast: {}", lastReport);
 		return lastReport;
+	}
+
+	/**
+	 * Pulls the picked chunks of one region across.
+	 *
+	 * <p>Every chunk is recorded against the source region file's timestamp, because that is the
+	 * only timestamp the source has. See {@link SyncLedger}.
+	 *
+	 * @return false when nothing could be copied at all
+	 */
+	private boolean copyChunks(RegionKey region, Set<ChunkKey> chunks) {
+		long sourceModified = sourceRegionTime(region);
+		ChunkCopier.Result result = chunkCopier.copy(region, chunks);
+
+		for (ChunkKey chunk : chunks) {
+			if (sourceModified > 0) {
+				chunkLedger.record(chunk, sourceModified);
+			} else {
+				// The source lost the whole region, so those chunks were removed here too.
+				chunkLedger.forget(chunk);
+			}
+		}
+		for (String error : result.errors()) {
+			LOGGER.error("  {} chunk FAILED: {}", region, error);
+		}
+		LOGGER.info("  {} chunks copied {} cleared {}",
+				region, result.chunksCopied(), result.chunksDeleted());
+		return result.chunksCopied() > 0 || result.chunksDeleted() > 0;
+	}
+
+	/** Last modified time of the source's terrain file for this region, or 0 when it has none. */
+	private long sourceRegionTime(RegionKey region) {
+		try {
+			return sourceScanner.modifiedTime(region);
+		} catch (IOException e) {
+			return 0L;
+		}
+	}
+
+	/** The loose chunks recorded inside one region, for the backup manifest. */
+	private Map<ChunkKey, Long> chunksRecordedIn(RegionKey region) {
+		Map<ChunkKey, Long> inside = new java.util.LinkedHashMap<>();
+		for (Map.Entry<ChunkKey, Long> entry : chunkLedger.asMap().entrySet()) {
+			if (entry.getKey().region().equals(region)) {
+				inside.put(entry.getKey(), entry.getValue());
+			}
+		}
+		return inside;
+	}
+
+	/** Drops every loose chunk record inside a region, for when the whole file has been copied. */
+	private void forgetChunksOf(RegionKey region) {
+		List<ChunkKey> inside = chunkLedger.known().stream()
+				.filter(chunk -> chunk.region().equals(region))
+				.toList();
+		inside.forEach(chunkLedger::forget);
+	}
+
+	private static String describe(int regions, int chunks, int failed) {
+		StringBuilder text = new StringBuilder();
+		if (regions > 0 || chunks == 0) {
+			text.append(regions).append(" region(s)");
+		}
+		if (chunks > 0) {
+			if (!text.isEmpty()) {
+				text.append(" and ");
+			}
+			text.append(chunks).append(" chunk(s)");
+		}
+		text.append(" updated");
+		if (failed > 0) {
+			text.append(", ").append(failed).append(" failed, see the log");
+		}
+		return text.toString();
 	}
 
 	/**
@@ -329,7 +495,11 @@ public final class UpdateService {
 				// It was never copied before that update, so it goes back to never copied.
 				ledger.forget(entry.getKey());
 			}
+			// Every loose chunk inside it goes as well, and then the ones that were there before
+			// that update come back below. What is left is exactly what the restored file holds.
+			forgetChunksOf(entry.getKey());
 		}
+		result.chunkLedgerBefore().forEach(chunkLedger::record);
 		saveLedger();
 
 		lastReport = result.ok()
@@ -360,7 +530,7 @@ public final class UpdateService {
 			return true;
 		}
 		try {
-			snapshot.capture(region, ledger.lastCopiedSourceTime(region));
+			snapshot.capture(region, ledger.lastCopiedSourceTime(region), chunksRecordedIn(region));
 			return true;
 		} catch (IOException e) {
 			LOGGER.error("  {} SKIPPED: could not back it up first: {}", region, e.getMessage());
@@ -386,6 +556,7 @@ public final class UpdateService {
 	private void saveLedger() {
 		try {
 			ledgerStore.save(ledger);
+			chunkLedgerStore.save(chunkLedger);
 		} catch (IOException e) {
 			LOGGER.error("Could not save the ledger, regions will look out of date again", e);
 		}

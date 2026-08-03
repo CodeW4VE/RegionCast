@@ -45,6 +45,33 @@ coordenadas y confiar en que acertaste el archivo.
   `save-on` al terminar, con reintentos, porque dejar el servidor de otro sin guardar es peor que
   cualquier cosa que este mod intentara hacer.
 
+## Chunks, cuando una región entera es más de lo que querías
+
+Si te acercás lo suficiente, la rejilla pasa de regiones a chunks y el click elige un chunk suelto.
+Sin botón de modo: a ese zoom una región es más ancha que la pantalla, y alejado un chunk es un
+píxel, así que el gesto solo puede significar una cosa en cada momento.
+
+Los chunks sueltos se copian distinto a las regiones enteras. Una región es una copia de archivo.
+Un chunk se saca del region file del origen y se escribe dentro del nuestro, usando el `RegionFile`
+del propio Minecraft, así que el resultado es byte por byte lo que habría escrito el juego. Lo que
+ganás con eso es traerte una construcción sin los 512 bloques de terreno con los que comparte
+archivo.
+
+Lo que cuesta:
+
+- **La luz y todo lo que cruza un borde de chunk** llega a medias hasta que el juego lo recalcula.
+  Lo hace, pero se ve un momento, sobre todo en cuevas.
+- **Más lento por bloque**: cada chunk se descomprime y se recomprime, y el region file del origen
+  se copia antes a una carpeta de trabajo (`RegionFile` insiste en abrir su archivo en escritura, y
+  el origen se supone montado en solo lectura). Siguen siendo segundos, no minutos.
+- **El origen solo tiene fecha por region file entero**, así que un chunk solo se puede juzgar
+  contra eso. Un cambio en cualquier parte de una región marca como desactualizados todos los
+  chunks que sacaste de ella, hasta los que nadie tocó. Se equivoca hacia el lado que te dice que
+  mires.
+
+Los chunks copiados se pintan verdes, rojos cuando el origen sigue adelante, dorados mientras están
+en cola.
+
 ## Backups
 
 Cada actualización aparta los region files que va a reemplazar. Las últimas **3** se pueden
@@ -150,9 +177,11 @@ plugin de [MCDReforged](https://github.com/MCDReforged/MCDReforged) listo: copi�
 ## Uso
 
 ```
-/rc                    qué está desactualizado, qué hay en cola, qué backups hay
+/rc                    abre el mapa, o escribe el estado si no podés abrirlo
 /rc map                abre el mapa (necesita el mod cliente)
+/rc status             qué está desactualizado, qué hay en cola, qué backups hay
 /rc here               encola la región en la que estás parado
+/rc here chunk         encola solo el chunk en el que estás parado
 /rc add <dim> <x> <z>  encola una por índice, dimensión -1, 0 o 1
 /rc scan               relee el origen
 /rc list               qué hay en cola
@@ -162,8 +191,8 @@ plugin de [MCDReforged](https://github.com/MCDReforged/MCDReforged) listo: copi�
 /rc restore [n]        devuelve una, y reinicia
 ```
 
-En el mapa: **click izquierdo** para encolar o desencolar una región, **click derecho arrastrando**
-para moverte, **rueda** para el zoom. Los colores son rojo si cambió desde la última copia, azul si
+En el mapa: **click izquierdo** para encolar o desencolar lo que estés apuntando, **click derecho
+arrastrando** para moverte, **rueda** para el zoom. Alejado eso es una región; acercado, un chunk. Los colores son rojo si cambió desde la última copia, azul si
 nunca se copió, dorado si está en cola.
 
 La cola sobrevive a un reinicio, así que si el servidor se cae por otro motivo no te toca volver a
@@ -192,7 +221,9 @@ Necesita JDK 21. El jar sale en `build/libs/`.
 
 Los paquetes `model` y `sync` no tienen ni una clase de Minecraft, a propósito, así que la copia,
 el ledger, la cola, los backups y el protocolo RCON se testean todos contra carpetas temporales en
-vez de contra un mundo de 13 GB. 87 tests, que corren en CI en cada push.
+vez de contra un mundo de 13 GB. La única excepción es `anvil`, que tiene que hablar con el código
+de region files de Minecraft, y se testea contra region files de verdad. 108 tests, que corren en
+CI en cada push.
 
 ## Licencia
 

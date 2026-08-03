@@ -9,6 +9,7 @@ import net.minecraft.network.chat.Component;
 import xyz.w4ve.regioncast.client.RegionCastClient;
 import xyz.w4ve.regioncast.client.map.MapStore;
 import xyz.w4ve.regioncast.client.map.MapView;
+import xyz.w4ve.regioncast.model.ChunkKey;
 import xyz.w4ve.regioncast.model.Dim;
 import xyz.w4ve.regioncast.model.RegionKey;
 import xyz.w4ve.regioncast.model.RegionStatus;
@@ -88,8 +89,13 @@ public final class RegionCastScreen extends Screen {
 				.bounds(x, y, buttonWidth, 20).build());
 	}
 
+	/** Everything picked, regions and loose chunks alike. What Update is going to act on. */
+	private static int pickedCount() {
+		return RegionCastClient.queued().size() + RegionCastClient.queuedChunks().size();
+	}
+
 	private Component updateLabel() {
-		int queued = RegionCastClient.queued().size();
+		int queued = pickedCount();
 		return queued == 0
 				? Component.literal("Update")
 				: Component.literal("Update " + queued).withStyle(ChatFormatting.GOLD);
@@ -113,10 +119,10 @@ public final class RegionCastScreen extends Screen {
 		drawSummary(graphics, dim);
 		drawHover(graphics, dim);
 
-		boolean canUpdate = !RegionCastClient.queued().isEmpty() && RegionCastClient.serverHasMod();
+		boolean canUpdate = pickedCount() > 0 && RegionCastClient.serverHasMod();
 		updateButton.active = canUpdate;
 		updateButton.setMessage(updateLabel());
-		clearButton.active = !RegionCastClient.queued().isEmpty();
+		clearButton.active = pickedCount() > 0;
 		// Grey when there is nothing to undo, rather than opening an empty list.
 		backupsButton.active = !RegionCastClient.backups().isEmpty();
 	}
@@ -138,7 +144,7 @@ public final class RegionCastScreen extends Screen {
 				.append(Component.literal("   "))
 				.append(chip(RegionCastClient.count(RegionStatus.NEVER_SYNCED) + " never copied", ChatFormatting.AQUA))
 				.append(Component.literal("   "))
-				.append(chip(RegionCastClient.queued().size() + " queued", ChatFormatting.GOLD));
+				.append(chip(pickedCount() + " queued", ChatFormatting.GOLD));
 		graphics.drawString(font, summary, MARGIN, MARGIN, 0xFFFFFF);
 
 		String report = RegionCastClient.report();
@@ -152,10 +158,31 @@ public final class RegionCastScreen extends Screen {
 		return Component.literal(text).withStyle(colour);
 	}
 
-	/** The line under the cursor: which region it is and what is wrong with it. */
+	/** The line under the cursor: what you are pointing at and what is wrong with it. */
 	private void drawHover(GuiGraphics graphics, Dim dim) {
 		RegionKey region = VIEW.hovered();
 		if (region == null || dim == null) {
+			return;
+		}
+
+		int y = mapTop() + mapHeight() + 5;
+		ChunkKey chunk = VIEW.hoveredChunk();
+		if (chunk != null) {
+			// Says chunk, so it is obvious the click has stopped meaning the whole region.
+			String state = RegionCastClient.isQueued(chunk)
+					? "queued"
+					: RegionCastClient.isCopied(chunk)
+							? (RegionCastClient.isChunkStale(chunk)
+									? "copied, source changed since"
+									: "copied on its own")
+							: "click to queue this chunk";
+
+			Component line = Component.literal("chunk " + chunk.x() + ", " + chunk.z() + "  ")
+					.append(Component.literal(state).withStyle(ChatFormatting.GRAY))
+					.append(Component.literal("   in " + region.fileName()
+							+ "   " + chunk.minBlockX() + ", " + chunk.minBlockZ())
+							.withStyle(ChatFormatting.DARK_GRAY));
+			graphics.drawString(font, line, MARGIN, y, 0xFFFFFF);
 			return;
 		}
 
@@ -175,7 +202,6 @@ public final class RegionCastScreen extends Screen {
 						+ " to " + region.maxBlockX() + ", " + region.maxBlockZ())
 						.withStyle(ChatFormatting.DARK_GRAY));
 
-		int y = mapTop() + mapHeight() + 5;
 		graphics.drawString(font, line, MARGIN, y, 0xFFFFFF);
 	}
 
@@ -195,7 +221,21 @@ public final class RegionCastScreen extends Screen {
 		}
 
 		if (button == 0) {
-			// Left click toggles, so picking and unpicking are the same gesture.
+			// Left click toggles, so picking and unpicking are the same gesture. What it toggles
+			// depends on how close you are: zoomed in, a chunk; zoomed out, the whole region.
+			ChunkKey chunk = VIEW.chunkMode()
+					? VIEW.chunkAt(dim, mouseX, mouseY, MARGIN, mapTop(), mapWidth(), mapHeight())
+					: null;
+
+			if (chunk != null) {
+				RegionCastClient.sendChunks(
+						RegionCastClient.queuedChunks().contains(chunk)
+								? RegionCommandPayload.Action.REMOVE_CHUNKS
+								: RegionCommandPayload.Action.ADD_CHUNKS,
+						List.of(chunk));
+				return true;
+			}
+
 			RegionCastClient.send(
 					RegionCastClient.isQueued(region)
 							? RegionCommandPayload.Action.REMOVE

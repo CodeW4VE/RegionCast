@@ -1,5 +1,6 @@
 package xyz.w4ve.regioncast.sync;
 
+import xyz.w4ve.regioncast.model.ChunkKey;
 import xyz.w4ve.regioncast.model.Dim;
 import xyz.w4ve.regioncast.model.RegionKey;
 
@@ -31,6 +32,25 @@ final class RegionText {
 		}
 		try {
 			return new RegionKey(
+					Dim.byIndex(Integer.parseInt(parts[0])),
+					Integer.parseInt(parts[1]),
+					Integer.parseInt(parts[2]));
+		} catch (IllegalArgumentException e) {
+			return null;
+		}
+	}
+
+	/** Same three fields, but the numbers are chunk coordinates rather than region ones. */
+	static String formatChunk(ChunkKey chunk) {
+		return chunk.dim().index() + " " + chunk.x() + " " + chunk.z();
+	}
+
+	static ChunkKey parseChunk(String[] parts) {
+		if (parts.length < 3) {
+			return null;
+		}
+		try {
+			return new ChunkKey(
 					Dim.byIndex(Integer.parseInt(parts[0])),
 					Integer.parseInt(parts[1]),
 					Integer.parseInt(parts[2]));

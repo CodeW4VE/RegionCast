@@ -15,6 +15,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
+import xyz.w4ve.regioncast.model.ChunkKey;
 import xyz.w4ve.regioncast.model.RegionKey;
 import xyz.w4ve.regioncast.model.RegionPaths;
 
@@ -97,9 +98,17 @@ public final class BackupStore {
 		return String.format("%.0f MB", Math.ceil(bytes / (1024.0 * 1024.0)));
 	}
 
-	/** What a restore did, for the log line and the chat message. */
+	/**
+	 * What a restore did, for the log line and the chat message.
+	 *
+	 * @param ledgerBefore what the region ledger said about each region before the update
+	 * @param chunkLedgerBefore the loose chunks recorded inside those regions before the update.
+	 *     Chunks pulled in by earlier updates are in the restored files and belong in the ledger;
+	 *     the ones this update added do not, and are simply absent from here.
+	 */
 	public record RestoreResult(String id, int regions, int filesRestored, int filesDeleted,
-			Map<RegionKey, Long> ledgerBefore, List<String> errors) {
+			Map<RegionKey, Long> ledgerBefore, Map<ChunkKey, Long> chunkLedgerBefore,
+			List<String> errors) {
 		public boolean ok() {
 			return errors.isEmpty();
 		}
@@ -234,8 +243,11 @@ public final class BackupStore {
 		 * Sets aside everything this region has here right now, before it gets overwritten.
 		 *
 		 * @param ledgerBefore what the ledger said about this region, or 0 when it did not know it
+		 * @param chunksBefore the loose chunks already recorded inside this region, so a restore
+		 *     can tell them apart from the ones this update is about to add
 		 */
-		public void capture(RegionKey region, long ledgerBefore) throws IOException {
+		public void capture(RegionKey region, long ledgerBefore, Map<ChunkKey, Long> chunksBefore)
+				throws IOException {
 			List<String> pending = new ArrayList<>();
 			for (String relative : RegionPaths.of(region)) {
 				Path from = world.resolve(relative);
@@ -251,8 +263,16 @@ public final class BackupStore {
 				}
 			}
 			lines.add("r " + RegionText.format(region) + " " + ledgerBefore);
+			for (Map.Entry<ChunkKey, Long> chunk : chunksBefore.entrySet()) {
+				lines.add("c " + RegionText.formatChunk(chunk.getKey()) + " " + chunk.getValue());
+			}
 			lines.addAll(pending);
 			regions++;
+		}
+
+		/** Convenience for the common case of a region with no loose chunks recorded in it. */
+		public void capture(RegionKey region, long ledgerBefore) throws IOException {
+			capture(region, ledgerBefore, Map.of());
 		}
 
 		/**
@@ -299,6 +319,7 @@ public final class BackupStore {
 		Path manifest = dir.resolve(MANIFEST);
 		List<String> errors = new ArrayList<>();
 		Map<RegionKey, Long> ledgerBefore = new LinkedHashMap<>();
+		Map<ChunkKey, Long> chunkLedgerBefore = new LinkedHashMap<>();
 		int restored = 0;
 		int removed = 0;
 
@@ -306,7 +327,8 @@ public final class BackupStore {
 		try {
 			lines = Files.readAllLines(manifest, StandardCharsets.UTF_8);
 		} catch (IOException e) {
-			return new RestoreResult(id, 0, 0, 0, Map.of(), List.of("cannot read " + manifest + ": " + e.getMessage()));
+			return new RestoreResult(id, 0, 0, 0, Map.of(), Map.of(),
+					List.of("cannot read " + manifest + ": " + e.getMessage()));
 		}
 
 		for (String line : lines) {
@@ -317,6 +339,12 @@ public final class BackupStore {
 						RegionKey region = RegionText.parse(new String[] {parts[1], parts[2], parts[3]});
 						if (region != null) {
 							ledgerBefore.put(region, parseLong(parts.length > 4 ? parts[4] : "", 0L));
+						}
+					}
+					case "c" -> {
+						ChunkKey chunk = RegionText.parseChunk(new String[] {parts[1], parts[2], parts[3]});
+						if (chunk != null) {
+							chunkLedgerBefore.put(chunk, parseLong(parts.length > 4 ? parts[4] : "", 0L));
 						}
 					}
 					case "+" -> {
@@ -342,7 +370,8 @@ public final class BackupStore {
 				errors.add(line.trim() + ": " + e);
 			}
 		}
-		return new RestoreResult(id, ledgerBefore.size(), restored, removed, ledgerBefore, errors);
+		return new RestoreResult(id, ledgerBefore.size(), restored, removed, ledgerBefore,
+				chunkLedgerBefore, errors);
 	}
 
 	/** Removes a snapshot by hand, for when the disk matters more than the safety net. */

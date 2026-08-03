@@ -19,6 +19,7 @@ import xyz.w4ve.regioncast.net.RegionCommandPayload;
 import xyz.w4ve.regioncast.net.RegionStatePayload;
 import xyz.w4ve.regioncast.server.RegionCastCommand;
 import xyz.w4ve.regioncast.server.RegionCastConfig;
+import xyz.w4ve.regioncast.server.RegionCastPaths;
 import xyz.w4ve.regioncast.server.UpdateService;
 
 /**
@@ -54,25 +55,18 @@ public final class RegionCast implements ModInitializer {
 	}
 
 	private void onServerStarted(MinecraftServer server) {
-		Path configFile = server.getWorldPath(LevelResource.ROOT)
-				.resolve("../config/regioncast.properties").normalize();
-		Path ledgerFile = server.getWorldPath(LevelResource.ROOT)
-				.resolve("../config/regioncast-ledger.txt").normalize();
-		Path queueFile = server.getWorldPath(LevelResource.ROOT)
-				.resolve("../config/regioncast-queue.txt").normalize();
+		Path configFile = RegionCastPaths.configFile(server);
 		try {
 			RegionCastConfig config = RegionCastConfig.loadOrCreate(configFile);
-			Path destination = server.getWorldPath(LevelResource.ROOT).normalize();
-			Path source = destination.resolve(config.sourceWorld()).normalize();
-			Path backupDir = destination.resolve(config.backupDir()).normalize();
-			service = new UpdateService(config, source, destination, ledgerFile, queueFile, backupDir);
+			RegionCastPaths paths = RegionCastPaths.of(server, config);
+			service = new UpdateService(config, paths);
 
 			if (!service.sourceAvailable()) {
 				LOGGER.warn("Source world not found at {}. Set source_world in {} and mount it.",
-						source, configFile);
+						paths.sourceWorld(), configFile);
 			} else {
 				service.refresh();
-				LOGGER.info("Watching {} for regions to pull in", source);
+				LOGGER.info("Watching {} for regions to pull in", paths.sourceWorld());
 			}
 		} catch (IOException e) {
 			LOGGER.error("RegionCast could not start, the mod will stay idle", e);
@@ -115,7 +109,9 @@ public final class RegionCast implements ModInitializer {
 	/** Starts the warning countdown that ends in a shutdown, and then the copy. */
 	public static void beginUpdate(MinecraftServer server) {
 		service.arm();
-		countdownReason = "update " + service.queued().size() + " region(s)";
+		int chunks = service.queuedChunks().size();
+		countdownReason = "update " + service.queued().size() + " region(s)"
+				+ (chunks > 0 ? " and " + chunks + " chunk(s)" : "");
 		startCountdown();
 	}
 
@@ -154,6 +150,8 @@ public final class RegionCast implements ModInitializer {
 		switch (payload.action()) {
 			case ADD -> service.add(payload.regions());
 			case REMOVE -> service.remove(payload.regions());
+			case ADD_CHUNKS -> service.addChunks(payload.chunks());
+			case REMOVE_CHUNKS -> service.removeChunks(payload.chunks());
 			case CLEAR -> service.clear();
 			case REFRESH -> {
 				try {
@@ -213,7 +211,8 @@ public final class RegionCast implements ModInitializer {
 			return;
 		}
 		ServerPlayNetworking.send(player, new RegionStatePayload(
-				service.entries(), service.queued(), service.lastReport(), service.snapshots()));
+				service.entries(), service.queued(), service.queuedChunks(), service.partials(),
+				service.lastReport(), service.snapshots()));
 	}
 
 	/**
@@ -226,7 +225,8 @@ public final class RegionCast implements ModInitializer {
 			return false;
 		}
 		ServerPlayNetworking.send(player, new RegionStatePayload(
-				service.entries(), service.queued(), service.lastReport(), service.snapshots(), true));
+				service.entries(), service.queued(), service.queuedChunks(), service.partials(),
+				service.lastReport(), service.snapshots(), true));
 		return true;
 	}
 
