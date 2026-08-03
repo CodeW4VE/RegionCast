@@ -110,18 +110,29 @@ public final class RegionCastConfig {
 		return value.equalsIgnoreCase("true") || value.equals("1");
 	}
 
-	/** Loads the config, writing a commented template first if there is not one yet. */
+	/** Every key that belongs in a config file, with what it is when nobody has said otherwise. */
+	private static final Map<String, String> DEFAULTS = Map.of(
+			"source_world", DEFAULT_SOURCE,
+			"rcon_host", "",
+			"rcon_port", "25575",
+			"rcon_password", "",
+			"permission_level", "3",
+			"require_empty", "false",
+			"backup_keep", String.valueOf(DEFAULT_BACKUP_KEEP),
+			"backup_dir", DEFAULT_BACKUP_DIR);
+
+	/**
+	 * Loads the config, writing a commented template first if there is not one yet.
+	 *
+	 * <p>A config written by an older version is topped up with whatever keys have been added
+	 * since, at their defaults, and written back. Otherwise the only way to find out a new setting
+	 * exists is to read the changelog, and a setting you cannot see is a setting you do not have.
+	 * Values already in the file are never touched.
+	 */
 	public static RegionCastConfig loadOrCreate(Path file) throws IOException {
 		RegionCastConfig config = new RegionCastConfig();
 		if (!Files.isRegularFile(file)) {
-			config.values.put("source_world", DEFAULT_SOURCE);
-			config.values.put("rcon_host", "");
-			config.values.put("rcon_port", "25575");
-			config.values.put("rcon_password", "");
-			config.values.put("permission_level", "3");
-			config.values.put("require_empty", "false");
-			config.values.put("backup_keep", String.valueOf(DEFAULT_BACKUP_KEEP));
-			config.values.put("backup_dir", DEFAULT_BACKUP_DIR);
+			config.values.putAll(DEFAULTS);
 			config.save(file);
 			return config;
 		}
@@ -138,6 +149,17 @@ public final class RegionCastConfig {
 			config.values.put(
 					trimmed.substring(0, equals).trim(),
 					trimmed.substring(equals + 1).trim());
+		}
+
+		boolean added = false;
+		for (Map.Entry<String, String> fallback : DEFAULTS.entrySet()) {
+			if (!config.values.containsKey(fallback.getKey())) {
+				config.values.put(fallback.getKey(), fallback.getValue());
+				added = true;
+			}
+		}
+		if (added) {
+			config.save(file);
 		}
 		return config;
 	}
