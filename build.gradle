@@ -1,0 +1,94 @@
+plugins {
+	id 'net.fabricmc.fabric-loom-remap' version "${loom_version}"
+	id 'maven-publish'
+}
+
+// Convencion Fabric: <version-del-mod>+<version-de-MC>, p. ej. 0.1.0+1.21
+version = "${project.mod_version}+${project.minecraft_version}"
+group = project.maven_group
+
+repositories {
+	mavenCentral()
+
+	// Mod Menu (solo para compilar la integracion opcional; no se empaqueta).
+	// Maven de Modrinth: mas fiable en CI que el CDN de TerraformersMC.
+	exclusiveContent {
+		forRepository {
+			maven {
+				name = "Modrinth"
+				url = "https://api.modrinth.com/maven"
+			}
+		}
+		filter { includeGroup "maven.modrinth" }
+	}
+}
+
+// Mod dual-side: el servidor copia los region files, el cliente dibuja el mapa.
+// El source set `client` no viaja al servidor dedicado, asi que nada de lo que
+// hay ahi puede tocarse desde `main`.
+loom {
+	splitEnvironmentSourceSets()
+}
+
+dependencies {
+	// To change the versions see the gradle.properties file
+	minecraft "com.mojang:minecraft:${project.minecraft_version}"
+	mappings loom.officialMojangMappings()
+	modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
+
+	modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+
+	// Mod Menu: solo en tiempo de compilacion (modCompileOnly). No es dependencia
+	// de runtime ni se mete en el jar.
+	modCompileOnly "maven.modrinth:modmenu:${project.modmenu_version}"
+
+	// El paquete `model` es logica pura sin Minecraft: se testea en CI.
+	testImplementation platform("org.junit:junit-bom:${project.junit_version}")
+	testImplementation "org.junit.jupiter:junit-jupiter"
+	testRuntimeOnly "org.junit.platform:junit-platform-launcher"
+}
+
+test {
+	useJUnitPlatform()
+	testLogging {
+		events "passed", "skipped", "failed"
+		showStandardStreams = true
+	}
+}
+
+processResources {
+	def version = project.version
+	inputs.property "version", version
+
+	filesMatching("fabric.mod.json") {
+		expand "version": version
+	}
+}
+
+tasks.withType(JavaCompile).configureEach {
+	it.options.release = 21
+}
+
+java {
+	withSourcesJar()
+
+	sourceCompatibility = JavaVersion.VERSION_21
+	targetCompatibility = JavaVersion.VERSION_21
+}
+
+jar {
+	def projectName = project.name
+	inputs.property "projectName", projectName
+
+	from("LICENSE") {
+		rename { "${it}_$projectName"}
+	}
+}
+
+publishing {
+	publications {
+		create("mavenJava", MavenPublication) {
+			from components.java
+		}
+	}
+}

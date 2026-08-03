@@ -1,0 +1,39 @@
+# Push a tag like `v1.1.0` and this builds the mod and publishes a GitHub
+# Release with the jar attached. No manual upload needed.
+#
+#   git tag v1.1.0
+#   git push origin v1.1.0
+
+name: release
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: checkout repository
+        uses: actions/checkout@v6
+
+      - name: setup jdk
+        uses: actions/setup-java@v5
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: build
+        run: |
+          chmod +x ./gradlew
+          ./gradlew build
+
+      - name: publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/libs/regioncast-*.jar
+          generate_release_notes: true
+          fail_on_unmatched_files: true

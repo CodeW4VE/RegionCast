@@ -1,0 +1,30 @@
+{
+	"schemaVersion": 1,
+	"id": "regioncast",
+	"version": "${version}",
+	"name": "RegionCast",
+	"description": "Pull region files from another server's world into this one, picked off a map. Shows which regions changed since the last copy, you click the ones you want, and it copies terrain, points of interest and entities together during a controlled restart. The last few updates stay undoable. Built for keeping a mirror server up to date without copying the whole world.",
+	"authors": [
+		"tvtvirus"
+	],
+	"contact": {
+		"homepage": "https://w4ve.xyz/",
+		"sources": "https://github.com/CodeW4VE/RegionCast"
+	},
+	"license": "MIT",
+	"environment": "*",
+	"entrypoints": {
+		"main": [
+			"xyz.w4ve.regioncast.RegionCast"
+		],
+		"client": [
+			"xyz.w4ve.regioncast.client.RegionCastClient"
+		]
+	},
+	"depends": {
+		"fabricloader": ">=0.16.0",
+		"minecraft": ">=1.21",
+		"java": ">=21",
+		"fabric-api": "*"
+	}
+}
