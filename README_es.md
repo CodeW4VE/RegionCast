@@ -222,7 +222,7 @@ Necesita JDK 21. El jar sale en `build/libs/`.
 Los paquetes `model` y `sync` no tienen ni una clase de Minecraft, a propósito, así que la copia,
 el ledger, la cola, los backups y el protocolo RCON se testean todos contra carpetas temporales en
 vez de contra un mundo de 13 GB. La única excepción es `anvil`, que tiene que hablar con el código
-de region files de Minecraft, y se testea contra region files de verdad. 108 tests, que corren en
+de region files de Minecraft, y se testea contra region files de verdad. 125 tests, que corren en
 CI en cada push.
 
 ## Licencia

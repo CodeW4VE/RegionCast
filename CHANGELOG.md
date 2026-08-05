@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.0.1
+
+Two things a live server found the hard way.
+
+- **A source that cannot be read no longer looks like a source that lost everything.** A world
+  folder holding no region file at all is now treated as unusable: no region is painted as gone,
+  no update can be armed, and an update already armed stops on the way out with the queue intact.
+  This is what a bind mount left pointing at a folder the backup plugin moved looks like from
+  inside a container, and before this the empty scan read as "the source lost every region", which
+  meant deleting them here.
+- **The report says what was deleted.** Regions and chunks removed because the source no longer
+  has them are counted apart from the ones that were copied, instead of all of it reading
+  `4 region(s) updated`.
+- The network channels carry their layout version in their name. A client mod older than the
+  server now quietly gets no map and a message telling it to update, instead of being kicked with
+  a decoder error every time the server sends state.
+- 125 tests.
+
 ## 1.0.0
 
 First public release.

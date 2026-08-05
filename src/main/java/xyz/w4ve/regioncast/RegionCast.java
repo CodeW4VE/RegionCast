@@ -61,9 +61,11 @@ public final class RegionCast implements ModInitializer {
 			RegionCastPaths paths = RegionCastPaths.of(server, config);
 			service = new UpdateService(config, paths);
 
-			if (!service.sourceAvailable()) {
-				LOGGER.warn("Source world not found at {}. Set source_world in {} and mount it.",
-						paths.sourceWorld(), configFile);
+			String problem = service.sourceProblem();
+			if (problem != null) {
+				LOGGER.error("RegionCast is idle: {}", problem);
+				LOGGER.error("Check source_world in {} and that the mount is up. Nothing will be"
+						+ " copied or deleted until it reads properly.", configFile);
 			} else {
 				service.refresh();
 				LOGGER.info("Watching {} for regions to pull in", paths.sourceWorld());

@@ -67,9 +67,19 @@ public record RegionStatePayload(List<Entry> entries, List<RegionKey> queued,
 	public record Partial(RegionKey region, ChunkMask copied, ChunkMask stale) {
 	}
 
+	/**
+	 * The channel carries its layout version in its name, and the number goes up whenever a field
+	 * is added or moved.
+	 *
+	 * <p>Two mod versions that disagree about the fields cannot both read this, and the way that
+	 * fails is ugly: the older reader stops early, netty finds bytes it did not expect and drops
+	 * the connection, so the player is kicked every time the server sends an update. With the
+	 * version in the name a client that does not know this layout never registers the channel,
+	 * the server sees it cannot send, and that player simply gets told to update their mod.
+	 */
 	public static final CustomPacketPayload.Type<RegionStatePayload> TYPE =
 			new CustomPacketPayload.Type<>(
-					ResourceLocation.fromNamespaceAndPath(RegionCast.MOD_ID, "region_state"));
+					ResourceLocation.fromNamespaceAndPath(RegionCast.MOD_ID, "region_state_v2"));
 
 	public static final StreamCodec<FriendlyByteBuf, RegionStatePayload> CODEC =
 			CustomPacketPayload.codec(RegionStatePayload::write, RegionStatePayload::new);

@@ -59,9 +59,10 @@ public record RegionCommandPayload(Action action, String argument, List<RegionKe
 		return new RegionCommandPayload(action, "", List.of(), chunks);
 	}
 
+	/** Versioned in the name for the same reason as the state channel. See RegionStatePayload. */
 	public static final CustomPacketPayload.Type<RegionCommandPayload> TYPE =
 			new CustomPacketPayload.Type<>(
-					ResourceLocation.fromNamespaceAndPath(RegionCast.MOD_ID, "region_command"));
+					ResourceLocation.fromNamespaceAndPath(RegionCast.MOD_ID, "region_command_v2"));
 
 	public static final StreamCodec<FriendlyByteBuf, RegionCommandPayload> CODEC =
 			CustomPacketPayload.codec(RegionCommandPayload::write, RegionCommandPayload::new);

@@ -48,6 +48,30 @@ public final class RegionScanner {
 		return found;
 	}
 
+	/**
+	 * Whether this world holds a single region file anywhere.
+	 *
+	 * <p>Tells a world apart from a folder that merely exists. Stops at the first file it finds
+	 * rather than listing everything, since one is all the answer needs.
+	 */
+	public boolean hasAnyRegion() throws IOException {
+		for (Dim dim : Dim.values()) {
+			Path folder = worldFolder.resolve(RegionPaths.dimensionFolder(dim, "region"));
+			if (!Files.isDirectory(folder)) {
+				continue;
+			}
+			try (DirectoryStream<Path> entries = Files.newDirectoryStream(folder)) {
+				for (Path entry : entries) {
+					if (RegionKey.parse(dim, entry.getFileName().toString()) != null
+							&& Files.isRegularFile(entry)) {
+						return true;
+					}
+				}
+			}
+		}
+		return false;
+	}
+
 	/** Timestamp of one region's terrain file, or 0 when it is not there. */
 	public long modifiedTime(RegionKey region) throws IOException {
 		Path file = worldFolder

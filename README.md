@@ -217,7 +217,7 @@ Needs JDK 21. The jar lands in `build/libs/`.
 The `model` and `sync` packages contain no Minecraft classes on purpose, so the copying, the
 ledger, the queue, the backups and the RCON protocol are all unit tested against temporary folders
 rather than a 13 GB world. The one exception is `anvil`, which has to talk to Minecraft's own
-region file code, and is tested against real region files instead. 108 tests, run in CI on every
+region file code, and is tested against real region files instead. 125 tests, run in CI on every
 push.
 
 ## License

@@ -1,6 +1,7 @@
 package xyz.w4ve.regioncast.sync;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
@@ -83,6 +84,29 @@ class RegionScannerTest {
 		assertEquals(1, scanner.scan(Dim.OVERWORLD).size());
 		assertEquals(2_000L, scanner.scan(Dim.NETHER).get(new RegionKey(Dim.NETHER, 7, 7)));
 		assertEquals(3_000L, scanner.scan(Dim.END).get(new RegionKey(Dim.END, 9, 9)));
+	}
+
+	@Test
+	@DisplayName("an empty folder is told apart from a world")
+	void emptyFolderHasNoRegions() throws IOException {
+		RegionScanner scanner = new RegionScanner(world);
+		assertFalse(scanner.hasAnyRegion(), "an empty folder is not a world");
+
+		Files.createDirectories(world.resolve("region"));
+		assertFalse(scanner.hasAnyRegion(), "an empty region folder is not a world either");
+
+		writeRegion("region", "session.lock", 1_000L);
+		assertFalse(scanner.hasAnyRegion(), "junk is not a region file");
+
+		writeRegion("region", "r.0.0.mca", 1_000L);
+		assertTrue(scanner.hasAnyRegion());
+	}
+
+	@Test
+	@DisplayName("a world only anybody took to the nether still counts")
+	void netherOnlyCounts() throws IOException {
+		writeRegion("DIM-1/region", "r.7.7.mca", 2_000L);
+		assertTrue(new RegionScanner(world).hasAnyRegion());
 	}
 
 	@Test

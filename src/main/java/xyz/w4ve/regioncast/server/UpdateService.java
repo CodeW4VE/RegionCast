@@ -109,8 +109,36 @@ public final class UpdateService {
 		return copier.sourceWorld();
 	}
 
+	/**
+	 * Whether the source can be read at all, and if not, why.
+	 *
+	 * <p>An empty folder is the dangerous case, not a missing one. A world nobody can read scans
+	 * as zero regions, zero regions reads as "the source lost every single one", and a region the
+	 * source lost is a region this side deletes. That is exactly what a bind mount left pointing
+	 * at a directory somebody moved looks like from in here: the folder is still there and still
+	 * empty. So a source without a single region file anywhere counts as unreadable, and nothing
+	 * is copied or deleted until it comes back.
+	 *
+	 * @return null when the source is fine, or a sentence saying what is wrong with it
+	 */
+	public String sourceProblem() {
+		Path world = copier.sourceWorld();
+		if (!java.nio.file.Files.isDirectory(world)) {
+			return "the source world is not there: " + world;
+		}
+		try {
+			if (!sourceScanner.hasAnyRegion()) {
+				return "the source world holds no region files at all, so it is not being read"
+						+ " properly (a mount that went away looks like this): " + world;
+			}
+		} catch (IOException e) {
+			return "the source world cannot be read: " + e.getMessage();
+		}
+		return null;
+	}
+
 	public boolean sourceAvailable() {
-		return java.nio.file.Files.isDirectory(copier.sourceWorld());
+		return sourceProblem() == null;
 	}
 
 	/** Re-reads the source and recomputes what the map should paint. */
@@ -148,9 +176,16 @@ public final class UpdateService {
 		// Regions we copied once that the source no longer has. They are not in the scan, so
 		// they have to be picked up from the ledger side.
 		for (RegionKey known : ledger.known()) {
-			if (!seen.contains(known)) {
-				entries.add(new RegionStatePayload.Entry(known, RegionStatus.GONE));
+			if (seen.contains(known)) {
+				continue;
 			}
+			Map<RegionKey, Long> perDim = lastScan.get(known.dim());
+			if (perDim == null || perDim.isEmpty()) {
+				// A whole dimension that scanned as nothing was not emptied, it was not read.
+				// Calling those regions gone would offer to delete them here for no reason.
+				continue;
+			}
+			entries.add(new RegionStatePayload.Entry(known, RegionStatus.GONE));
 		}
 		return entries;
 	}
@@ -278,8 +313,9 @@ public final class UpdateService {
 		if (queue.isEmpty() && chunkQueue.isEmpty()) {
 			return "the queue is empty";
 		}
-		if (!sourceAvailable()) {
-			return "the source world is not there: " + copier.sourceWorld();
+		String problem = sourceProblem();
+		if (problem != null) {
+			return problem;
 		}
 		if (config.hasRcon()) {
 			try (RconClient rcon = RconClient.connect(
@@ -336,6 +372,17 @@ public final class UpdateService {
 		if (queue.isEmpty() && chunkQueue.isEmpty()) {
 			return "";
 		}
+		// Checked again here and not only when the update was armed: the source can go away in
+		// between, and by this point the world is closed and nobody is watching. The queue is
+		// left alone so the same update can simply be run again once it is back.
+		String problem = sourceProblem();
+		if (problem != null) {
+			lastReport = "update skipped, " + problem;
+			LOGGER.error("RegionCast: {}", lastReport);
+			LOGGER.error("  the queue was kept, nothing was copied and nothing was deleted");
+			return lastReport;
+		}
+
 		List<RegionKey> regions = List.copyOf(queue);
 		Map<RegionKey, Set<ChunkKey>> looseChunks = ChunkCopier.byRegion(chunkQueue);
 		LOGGER.info("Copying {} region(s) and {} chunk(s) from {}",
@@ -346,6 +393,10 @@ public final class UpdateService {
 		int ok = 0;
 		int failed = 0;
 		int chunksCopied = 0;
+		// Copying a region the source has lost means deleting it here, which is a different thing
+		// from bringing terrain across and is counted apart so the report cannot hide it.
+		int removed = 0;
+		int chunksRemoved = 0;
 		try {
 			for (RegionKey region : regions) {
 				// Backup first. A region whose old files could not be set aside is left alone:
@@ -356,7 +407,11 @@ public final class UpdateService {
 				}
 				CopyResult result = copier.copy(region);
 				if (result.ok()) {
-					ok++;
+					if (result.filesCopied() > 0) {
+						ok++;
+					} else {
+						removed++;
+					}
 					if (result.sourceModifiedMillis() > 0) {
 						ledger.record(region, result.sourceModifiedMillis());
 					} else {
@@ -382,7 +437,9 @@ public final class UpdateService {
 					failed++;
 					continue;
 				}
-				chunksCopied += copyChunks(region, entry.getValue()) ? entry.getValue().size() : 0;
+				ChunkCopier.Result result = copyChunks(region, entry.getValue());
+				chunksCopied += result.chunksCopied();
+				chunksRemoved += result.chunksDeleted();
 			}
 		} finally {
 			if (savingHeld) {
@@ -396,7 +453,7 @@ public final class UpdateService {
 		queue.clear();
 		chunkQueue.clear();
 		saveQueue();
-		lastReport = describe(ok, chunksCopied, failed);
+		lastReport = describe(ok, chunksCopied, removed, chunksRemoved, failed);
 		LOGGER.info("RegionCast: {}", lastReport);
 		return lastReport;
 	}
@@ -409,7 +466,7 @@ public final class UpdateService {
 	 *
 	 * @return false when nothing could be copied at all
 	 */
-	private boolean copyChunks(RegionKey region, Set<ChunkKey> chunks) {
+	private ChunkCopier.Result copyChunks(RegionKey region, Set<ChunkKey> chunks) {
 		long sourceModified = sourceRegionTime(region);
 		ChunkCopier.Result result = chunkCopier.copy(region, chunks);
 
@@ -426,7 +483,7 @@ public final class UpdateService {
 		}
 		LOGGER.info("  {} chunks copied {} cleared {}",
 				region, result.chunksCopied(), result.chunksDeleted());
-		return result.chunksCopied() > 0 || result.chunksDeleted() > 0;
+		return result;
 	}
 
 	/** Last modified time of the source's terrain file for this region, or 0 when it has none. */
@@ -457,7 +514,15 @@ public final class UpdateService {
 		inside.forEach(chunkLedger::forget);
 	}
 
-	private static String describe(int regions, int chunks, int failed) {
+	/**
+	 * The one line a person reads afterwards.
+	 *
+	 * <p>Says removed out loud instead of folding it into "updated". Deleting terrain here because
+	 * the source no longer has it is a legitimate outcome, and also what a source nobody can read
+	 * would look like, so it is the last thing that should be quietly counted as a success.
+	 */
+	private static String describe(int regions, int chunks, int regionsRemoved, int chunksRemoved,
+			int failed) {
 		StringBuilder text = new StringBuilder();
 		if (regions > 0 || chunks == 0) {
 			text.append(regions).append(" region(s)");
@@ -469,6 +534,19 @@ public final class UpdateService {
 			text.append(chunks).append(" chunk(s)");
 		}
 		text.append(" updated");
+		if (regionsRemoved > 0 || chunksRemoved > 0) {
+			text.append(", ");
+			if (regionsRemoved > 0) {
+				text.append(regionsRemoved).append(" region(s)");
+			}
+			if (chunksRemoved > 0) {
+				if (regionsRemoved > 0) {
+					text.append(" and ");
+				}
+				text.append(chunksRemoved).append(" chunk(s)");
+			}
+			text.append(" DELETED here, the source no longer has them");
+		}
 		if (failed > 0) {
 			text.append(", ").append(failed).append(" failed, see the log");
 		}

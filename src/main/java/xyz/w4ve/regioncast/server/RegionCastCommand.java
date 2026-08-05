@@ -106,9 +106,14 @@ public final class RegionCastCommand {
 				}
 			}
 		}
+		String sourceProblem = service.sourceProblem();
 		source.sendSuccess(() -> Component.literal("RegionCast").withStyle(ChatFormatting.AQUA), false);
 		source.sendSuccess(() -> Component.literal("  source: " + service.sourceWorld()
-				+ (service.sourceAvailable() ? "" : "  (NOT FOUND)")), false);
+				+ (sourceProblem == null ? "" : "  (UNUSABLE)")), false);
+		if (sourceProblem != null) {
+			source.sendSuccess(() -> Component.literal("  " + sourceProblem)
+					.withStyle(ChatFormatting.RED), false);
+		}
 		int finalStale = stale;
 		int finalNever = never;
 		int finalGone = gone;
@@ -145,7 +150,8 @@ public final class RegionCastCommand {
 		ServerPlayer player = source.getPlayerOrException();
 		if (!RegionCast.sendOpenMap(player)) {
 			source.sendFailure(Component.literal(
-					"You need the RegionCast client mod to open the map. Everything else works with /rc"));
+					"You need the RegionCast client mod, and one as new as the server's, to open"
+					+ " the map. Everything else works with /rc"));
 			return 0;
 		}
 		return 1;
