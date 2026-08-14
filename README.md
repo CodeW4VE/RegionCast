@@ -44,7 +44,7 @@ coordinates and hoping you got the right file.
   `save-on` afterwards, with retries, because leaving somebody else's server with saving off is
   worse than anything this mod was trying to do.
 
-## Chunks, when a whole region is more than you wanted
+## Chunks
 
 Zoom in far enough and the grid switches from regions to chunks, and clicking picks a single
 chunk. No mode button: at that zoom a region is wider than the screen, and zoomed out a chunk is a
