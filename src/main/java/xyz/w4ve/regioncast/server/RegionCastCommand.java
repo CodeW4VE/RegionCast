@@ -33,7 +33,7 @@ public final class RegionCastCommand {
 	public static void register() {
 		CommandRegistrationCallback.EVENT.register((dispatcher, registry, environment) ->
 				dispatcher.register(literal("rc")
-						.requires(source -> source.hasPermission(permissionLevel()))
+						.requires(source -> xyz.w4ve.regioncast.PermissionChecks.allowed(source, permissionLevel()))
 						.executes(RegionCastCommand::rootCommand)
 						.then(literal("status").executes(RegionCastCommand::status))
 						.then(literal("map").executes(RegionCastCommand::map))

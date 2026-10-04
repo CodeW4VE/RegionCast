@@ -99,8 +99,8 @@ Two things worth knowing:
 
 ## Requirements
 
-- Minecraft 1.21 or newer, Fabric, [Fabric API](https://modrinth.com/mod/fabric-api).
-- Java 21 or newer.
+- Minecraft **1.21 / 1.21.1** or **26.3**, Fabric and the matching [Fabric API](https://modrinth.com/mod/fabric-api).
+- Java 21 for 1.21; Java 25 and Fabric Loader 0.19.5 or newer for 26.3.
 - **Filesystem access to both worlds from the destination server.** This is the real requirement:
   the mod copies files, so the source world has to be visible to the destination process. A VPS or
   a dedicated machine, not a shared host like Aternos or the cheap end of Shockbyte where you only
@@ -115,6 +115,11 @@ the map.
 
 **1. Install the jar** on the destination server (the mirror). Install it on your client too if
 you want the map.
+
+Get the matching jar from [Modrinth](https://modrinth.com/mod/regioncast) or
+[GitHub Releases](https://github.com/CodeW4VE/RegionCast/releases).
+When updating, keep `config/regioncast.properties`, the world and your backup directory.
+The copy ledger, queued regions and chunks, and existing backups keep their format.
 
 **2. Make the source world visible** to the destination server, read only. On Linux, a bind mount
 next to the world folder:
@@ -210,9 +215,11 @@ click forty regions again.
 
 ```bash
 ./gradlew build
+python3 tools/multiversion.py
 ```
 
-Needs JDK 21. The jar lands in `build/libs/`.
+The base build needs JDK 21. Multiversion builds need JDK 21 and 25 and place both jars
+in `build/multiversion/`.
 
 The `model` and `sync` packages contain no Minecraft classes on purpose, so the copying, the
 ledger, the queue, the backups and the RCON protocol are all unit tested against temporary folders

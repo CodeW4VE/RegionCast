@@ -15,7 +15,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import net.minecraft.world.level.ChunkPos;
-import net.minecraft.world.level.Level;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.level.chunk.storage.RegionFile;
 import net.minecraft.world.level.chunk.storage.RegionStorageInfo;
 import org.junit.jupiter.api.BeforeEach;
@@ -85,7 +87,8 @@ class ChunkCopierTest {
 	}
 
 	private static RegionFile open(Path file) throws IOException {
-		return new RegionFile(new RegionStorageInfo("test", Level.OVERWORLD, "chunk"),
+		return new RegionFile(new RegionStorageInfo("test", ResourceKey.create(Registries.DIMENSION,
+				ResourceLocation.withDefaultNamespace("overworld")), "chunk"),
 				file, file.getParent(), false);
 	}
 

@@ -144,7 +144,7 @@ public final class RegionCast implements ModInitializer {
 			return;
 		}
 		// Checked on every packet: a payload is bytes, and anyone can send bytes.
-		if (!player.hasPermissions(service.config().permissionLevel())) {
+		if (!PermissionChecks.allowed(player.createCommandSourceStack(), service.config().permissionLevel())) {
 			LOGGER.warn("{} sent a RegionCast command without permission", player.getGameProfile().getName());
 			return;
 		}

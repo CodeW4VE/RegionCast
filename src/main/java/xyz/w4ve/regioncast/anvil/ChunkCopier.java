@@ -14,7 +14,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import net.minecraft.world.level.ChunkPos;
-import net.minecraft.world.level.Level;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.level.chunk.storage.RegionFile;
 import net.minecraft.world.level.chunk.storage.RegionStorageInfo;
 import xyz.w4ve.regioncast.model.ChunkKey;
@@ -54,7 +56,8 @@ import xyz.w4ve.regioncast.model.RegionPaths;
 public final class ChunkCopier {
 	/** Only ever used in the text of an error message, never to decide anything. */
 	private static final RegionStorageInfo INFO =
-			new RegionStorageInfo("regioncast", Level.OVERWORLD, "chunk");
+			new RegionStorageInfo("regioncast", ResourceKey.create(Registries.DIMENSION,
+					ResourceLocation.withDefaultNamespace("overworld")), "chunk");
 
 	private final Path sourceWorld;
 	private final Path destinationWorld;

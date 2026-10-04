@@ -230,3 +230,9 @@ CI en cada push.
 MIT. Ver [LICENSE](LICENSE).
 
 Parte de [W4VE](https://github.com/CodeW4VE), Ware 4 Vanilla Experience.
+
+## Compatibilidad y actualización
+
+Usá el jar correspondiente a **1.21 / 1.21.1** o **26.3**, junto con Fabric API para esa versión. Minecraft 26.3 necesita Java 25 y Fabric Loader 0.19.5 o superior; 1.21 necesita Java 21.
+
+Conservá `config/regioncast.properties`, los datos de sincronización del mundo, los backups y la caché del mapa. La cola y los registros de copia se mantienen al reiniciar; la actualización no copia regiones automáticamente.

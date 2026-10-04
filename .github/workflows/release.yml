@@ -1,9 +1,3 @@
-# Push a tag like `v1.1.0` and this builds the mod and publishes a GitHub
-# Release with the jar attached. No manual upload needed.
-#
-#   git tag v1.1.0
-#   git push origin v1.1.0
-
 name: release
 on:
   push:
@@ -16,24 +10,28 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-24.04
+    env:
+      MODRINTH_ID: ${{ vars.MODRINTH_ID }}
+      MODRINTH_TOKEN: ${{ secrets.MODRINTH_TOKEN }}
     steps:
-      - name: checkout repository
-        uses: actions/checkout@v6
-
-      - name: setup jdk
-        uses: actions/setup-java@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
+        with:
+          java-version: '25'
+          distribution: 'temurin'
+      - uses: actions/setup-java@v5
         with:
           java-version: '21'
           distribution: 'temurin'
-
-      - name: build
-        run: |
-          chmod +x ./gradlew
-          ./gradlew build
-
+          cache: 'gradle'
+      - name: build every version
+        run: python3 tools/multiversion.py
       - name: publish release
         uses: softprops/action-gh-release@v2
         with:
-          files: build/libs/regioncast-*.jar
+          files: build/multiversion/regioncast-*.jar
           generate_release_notes: true
           fail_on_unmatched_files: true
+      - name: publish to modrinth
+        if: env.MODRINTH_ID != '' && env.MODRINTH_TOKEN != ''
+        run: python3 tools/publish_modrinth.py

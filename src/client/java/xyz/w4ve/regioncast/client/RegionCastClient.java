@@ -52,10 +52,10 @@ public final class RegionCastClient implements ClientModInitializer {
 
 		// A fresh world means a fresh server: forget everything rather than showing the last
 		// server's colours over this one's terrain.
-		ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
+		ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> client.execute(() -> {
 			reset();
 			MapStore.closeAll();
-		});
+		}));
 
 		// A chunk that just arrived is drawn before the sweep gets to it, otherwise the chunk you
 		// are walking into shows up long after the ones beside it.
