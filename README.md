@@ -4,30 +4,62 @@
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Minecraft](https://img.shields.io/badge/Minecraft-1.21%2B-brightgreen.svg)](https://fabricmc.net/)
 
-Pull region files from another server's world into this one, picked off a map.
-
-RegionCast shows you which regions changed since the last time you copied them, you click the ones
-you want, and it brings terrain, points of interest and entities across during a controlled
-restart. The last few updates stay undoable.
+Keep a mirror server up to date by copying only the regions that changed, picked on a map.
 
 *[Leer en español](README_es.md)*
 
 <!-- screenshot: the map with the region grid, docs/map.png -->
 
-## What it is for
+- A map of the world where each tile is one region file: red changed since the last copy, blue
+  never copied, gold queued. Zoom in to pick single chunks.
+- Click what you want, press Update, and the server restarts with the new terrain, points of
+  interest and entities.
+- The last 3 updates can be undone.
+- Copies a few hundred MB instead of the whole world: on a real server only 59 of 1812 regions
+  (407 MB of 8 GB) changed in a day.
 
-You run a second server that mirrors a build server: a creative copy, a testing world, a render
-world, a place to show people a base without letting them into the real one. Keeping it up to date
-means copying the world across, and the world is 8 GB, and 97% of it did not change.
+Useful for creative copies, test worlds, render worlds, or a place to show a base without
+letting people into the real server.
 
-On a real server the numbers look like this: 1812 overworld regions, 8.0 GB, and in a whole day of
-play only 59 of them change. That is 407 MB. RegionCast copies those 59.
+## Installation
 
-The idea is the same one behind TISUnion's `region_file_updater` plugin and the old `!!region`
-commands, with one difference: you pick the regions on a map of the actual world instead of typing
-coordinates and hoping you got the right file.
+- Minecraft 1.21 / 1.21.1 or 26.3, Fabric and [Fabric API](https://modrinth.com/mod/fabric-api).
+  Java 21 for 1.21; Java 25 and Fabric Loader 0.19.5+ for 26.3.
+- The jar goes on the destination server (the mirror). On your client it is optional and adds the
+  map; without it everything works through `/rc`.
+- The destination server must be able to read the source world's files (a VPS or a dedicated
+  machine; shared hosts like Aternos do not allow it). Mount it read only.
+- Recommended: RCON on the source server, and something that restarts the mirror after it stops
+  (an [MCDReforged plugin](mcdr/) is included).
 
-## How it works
+Start the server once to create `config/regioncast.properties`, then set `source_world` and the
+source's RCON. Full setup in [Setup in detail](#setup-in-detail).
+
+## Usage
+
+```
+/rc                  open the map, or print the status if you cannot open one
+/rc map              open the map (needs the client mod)
+/rc status           what is out of date, what is queued, what backups exist
+/rc here             queue the region you are standing in
+/rc here chunk       queue only the chunk you are standing in
+/rc add <dim> <x> <z>  queue one by index, dimension -1, 0 or 1
+/rc scan             re-read the source
+/rc list             what is queued
+/rc clear            empty the queue
+/rc run              copy it all, then restart
+/rc backups          list the updates that can be taken back
+/rc restore [n]      put one back, then restart
+```
+
+On the map: left click queues or unqueues, right click drag pans, scroll zooms. The queue survives
+a restart.
+
+<!-- modrinth:end -->
+
+## Details
+
+### How it works
 
 - A map tile is 512 by 512 blocks. A region file is 512 by 512 blocks. So a tile **is** a region,
   no conversion anywhere, and the map is drawn from the chunks your client already has.
@@ -44,7 +76,7 @@ coordinates and hoping you got the right file.
   `save-on` afterwards, with retries, because leaving somebody else's server with saving off is
   worse than anything this mod was trying to do.
 
-## Chunks
+### Chunks
 
 Zoom in far enough and the grid switches from regions to chunks, and clicking picks a single
 chunk. No mode button: at that zoom a region is wider than the screen, and zoomed out a chunk is a
@@ -68,7 +100,7 @@ What it costs:
 
 Copied chunks are painted green, red once the source moves on, gold while queued.
 
-## Backups
+### Backups
 
 Every update sets aside the region files it is about to replace. The last **3** updates stay
 undoable, and older ones are dropped automatically.
@@ -77,8 +109,6 @@ A backup is one *update*, not one region: you click a handful of regions, press 
 decide that whole batch was a mistake. Restoring puts the files back with their original
 timestamps and rewinds the ledger with them, so restored regions correctly read as out of date
 again rather than claiming to match a source they no longer match.
-
-<!-- screenshot: the backups screen, docs/backups.png -->
 
 ```
 /rc backups          list what can be taken back
@@ -97,31 +127,14 @@ Two things worth knowing:
   RegionCast pulled from the source, and that is the one thing here you can always fetch again by
   pressing Update.
 
-## Requirements
+### Setup in detail
 
-- Minecraft **1.21 / 1.21.1** or **26.3**, Fabric and the matching [Fabric API](https://modrinth.com/mod/fabric-api).
-- Java 21 for 1.21; Java 25 and Fabric Loader 0.19.5 or newer for 26.3.
-- **Filesystem access to both worlds from the destination server.** This is the real requirement:
-  the mod copies files, so the source world has to be visible to the destination process. A VPS or
-  a dedicated machine, not a shared host like Aternos or the cheap end of Shockbyte where you only
-  get your own folder.
-- Optional but recommended: RCON on the source server, and something that restarts the destination
-  server after it stops.
-
-The client mod is optional. Without it everything still works through `/rc`; you just do not get
-the map.
-
-## Setup
-
-**1. Install the jar** on the destination server (the mirror). Install it on your client too if
-you want the map.
-
-Get the matching jar from [Modrinth](https://modrinth.com/mod/regioncast) or
+Get the jar from [Modrinth](https://modrinth.com/mod/regioncast) or
 [GitHub Releases](https://github.com/CodeW4VE/RegionCast/releases).
 When updating, keep `config/regioncast.properties`, the world and your backup directory.
 The copy ledger, queued regions and chunks, and existing backups keep their format.
 
-**2. Make the source world visible** to the destination server, read only. On Linux, a bind mount
+**Make the source world visible** to the destination server, read only. On Linux, a bind mount
 next to the world folder:
 
 ```bash
@@ -132,7 +145,7 @@ Add it to `/etc/fstab` with `nofail` so a missing source never stops the server 
 RegionCast never writes to the source, but mounting it read only means a bug in this mod cannot
 either.
 
-**3. Start the server once.** It writes `config/regioncast.properties`:
+**Start the server once.** It writes `config/regioncast.properties`:
 
 ```properties
 # path to the world folder to copy FROM, relative to the world folder or absolute
@@ -174,31 +187,7 @@ Anything that watches for that can start the server again. A ready made
 > the moment it sees the marker, which is while the server is still on its way down: by the time
 > `on_server_stop` runs the decision has already been made.
 
-## Using it
-
-```
-/rc                  open the map, or print the status if you cannot open one
-/rc map              open the map (needs the client mod)
-/rc status           what is out of date, what is queued, what backups exist
-/rc here             queue the region you are standing in
-/rc here chunk       queue only the chunk you are standing in
-/rc add <dim> <x> <z>  queue one by index, dimension -1, 0 or 1
-/rc scan             re-read the source
-/rc list             what is queued
-/rc clear            empty the queue
-/rc run              copy it all, then restart
-/rc backups          list the updates that can be taken back
-/rc restore [n]      put one back, then restart
-```
-
-On the map: **left click** to queue or unqueue whatever you are pointing at, **right click drag**
-to pan, **scroll** to zoom. Zoomed out that is a region; zoomed in it is a chunk. Colours are red
-for changed since the last copy, blue for never copied, gold for queued.
-
-The queue survives a restart, so a server that went down for some other reason does not make you
-click forty regions again.
-
-## Things that will bite you
+### Common mistakes
 
 - **Do not verify a copy by comparing md5 between the two worlds.** That is exactly the comparison
   the ledger exists to avoid, and it will tell you regions failed when they did not: the source

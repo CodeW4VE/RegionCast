@@ -4,30 +4,60 @@
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Minecraft](https://img.shields.io/badge/Minecraft-1.21%2B-brightgreen.svg)](https://fabricmc.net/)
 
-Trae region files del mundo de otro servidor a este, eligiéndolos en un mapa.
-
-RegionCast te muestra qué regiones cambiaron desde la última copia, vos hacés click en las que
-querés, y las trae (terreno, points of interest y entidades juntos) durante un reinicio
-controlado. Las últimas actualizaciones se pueden deshacer.
+Mantené al día un servidor espejo copiando solo las regiones que cambiaron, elegidas en un mapa.
 
 *[Read in English](README.md)*
 
 <!-- screenshot: el mapa con la cuadrícula de regiones, docs/map.png -->
 
-## Para qué sirve
+- Un mapa del mundo donde cada casilla es un region file: rojo si cambió desde la última copia,
+  azul si nunca se copió, dorado si está en cola. Acercando, elegís chunks sueltos.
+- Hacés click en lo que querés, tocás Actualizar, y el servidor reinicia con el terreno, los
+  points of interest y las entidades nuevas.
+- Las últimas 3 actualizaciones se pueden deshacer.
+- Copia unos cientos de MB en vez del mundo entero: en un servidor real solo cambiaron 59 de 1812
+  regiones (407 MB de 8 GB) en un día.
 
-Tenés un segundo servidor que espeja al principal: una copia en creativo, un mundo de pruebas, uno
-para renderizar, un sitio donde enseñar una base sin dejar entrar a nadie a la de verdad.
-Mantenerlo al día significa copiar el mundo, el mundo pesa 8 GB, y el 97% no cambió.
+Sirve para copias en creativo, mundos de prueba, mundos para renderizar, o para enseñar una base
+sin dejar entrar a nadie al servidor de verdad.
 
-En un servidor real los números son estos: 1812 regiones en el overworld, 8,0 GB, y en un día
-entero de juego solo cambian 59. Eso son 407 MB. RegionCast copia esas 59.
+## Instalación
 
-La idea es la misma del plugin `region_file_updater` de TISUnion y de los viejos comandos
-`!!region`, con una diferencia: elegís las regiones sobre un mapa del mundo real en vez de teclear
-coordenadas y confiar en que acertaste el archivo.
+- Minecraft 1.21 / 1.21.1 o 26.3, Fabric y [Fabric API](https://modrinth.com/mod/fabric-api).
+  Java 21 para 1.21; Java 25 y Fabric Loader 0.19.5+ para 26.3.
+- El jar va en el servidor destino (el mirror). En tu cliente es opcional y agrega el mapa; sin
+  él todo funciona por `/rc`.
+- El servidor destino tiene que poder leer los archivos del mundo de origen (un VPS o una máquina
+  dedicada; los hosts compartidos tipo Aternos no lo permiten). Montalo en solo lectura.
+- Recomendado: RCON en el servidor de origen, y algo que reinicie el mirror cuando se pare (viene
+  un [plugin de MCDReforged](mcdr/)).
 
-## Cómo funciona
+Arrancá el servidor una vez para que se cree `config/regioncast.properties`, y poné `source_world`
+y el RCON del origen. El paso a paso está en [Instalación en detalle](#instalación-en-detalle).
+
+## Uso
+
+```
+/rc                    abre el mapa, o escribe el estado si no podés abrirlo
+/rc map                abre el mapa (necesita el mod cliente)
+/rc status             qué está desactualizado, qué hay en cola, qué backups hay
+/rc here               encola la región en la que estás parado
+/rc here chunk         encola solo el chunk en el que estás parado
+/rc add <dim> <x> <z>  encola una por índice, dimensión -1, 0 o 1
+/rc scan               relee el origen
+/rc list               qué hay en cola
+/rc clear              vacía la cola
+/rc run                copia todo, y reinicia
+/rc backups            lista las actualizaciones que se pueden deshacer
+/rc restore [n]        devuelve una, y reinicia
+```
+
+En el mapa: click izquierdo encola o desencola, click derecho arrastrando mueve, la rueda hace zoom.
+La cola sobrevive a un reinicio.
+
+## Detalles
+
+### Cómo funciona
 
 - Un tile del mapa mide 512 por 512 bloques. Un region file mide 512 por 512 bloques. Así que un
   tile **es** una región, sin conversión en ninguna parte, y el mapa se dibuja con los chunks que
@@ -45,7 +75,7 @@ coordenadas y confiar en que acertaste el archivo.
   `save-on` al terminar, con reintentos, porque dejar el servidor de otro sin guardar es peor que
   cualquier cosa que este mod intentara hacer.
 
-## Chunks, cuando una región entera es más de lo que querías
+### Chunks
 
 Si te acercás lo suficiente, la rejilla pasa de regiones a chunks y el click elige un chunk suelto.
 Sin botón de modo: a ese zoom una región es más ancha que la pantalla, y alejado un chunk es un
@@ -72,7 +102,7 @@ Lo que cuesta:
 Los chunks copiados se pintan verdes, rojos cuando el origen sigue adelante, dorados mientras están
 en cola.
 
-## Backups
+### Backups
 
 Cada actualización aparta los region files que va a reemplazar. Las últimas **3** se pueden
 deshacer, y las más viejas se borran solas.
@@ -82,8 +112,6 @@ Update, y más tarde decidís que esa tanda entera fue un error. Restaurar devue
 sus fechas originales y rebobina el ledger con ellos, así las regiones restauradas vuelven a
 figurar como desactualizadas en vez de decir que coinciden con un origen con el que ya no
 coinciden.
-
-<!-- screenshot: la pantalla de backups, docs/backups.png -->
 
 ```
 /rc backups          lista lo que se puede deshacer
@@ -103,25 +131,13 @@ Dos cosas que conviene saber:
   RegionCast trajo del origen, y es justo lo único de todo esto que siempre podés volver a traer
   dándole a Update.
 
-## Requisitos
+### Instalación en detalle
 
-- Minecraft 1.21 o superior, Fabric, [Fabric API](https://modrinth.com/mod/fabric-api).
-- Java 21 o superior.
-- **Acceso al sistema de archivos de los dos mundos desde el servidor destino.** Este es el
-  requisito de verdad: el mod copia archivos, así que el mundo de origen tiene que ser visible para
-  el proceso del destino. Un VPS o una máquina dedicada, no un host compartido tipo Aternos ni la
-  gama barata de Shockbyte, donde solo tenés tu carpeta.
-- Opcional pero recomendado: RCON en el servidor de origen, y algo que reinicie el servidor destino
-  cuando se pare.
+Usá el jar correspondiente a **1.21 / 1.21.1** o **26.3**, junto con Fabric API para esa versión. Minecraft 26.3 necesita Java 25 y Fabric Loader 0.19.5 o superior; 1.21 necesita Java 21.
 
-El mod cliente es opcional. Sin él todo funciona igual por `/rc`; lo único que te falta es el mapa.
+Conservá `config/regioncast.properties`, los datos de sincronización del mundo, los backups y la caché del mapa. La cola y los registros de copia se mantienen al reiniciar; la actualización no copia regiones automáticamente.
 
-## Instalación
-
-**1. Poné el jar** en el servidor destino (el mirror). Ponelo también en tu cliente si querés el
-mapa.
-
-**2. Hacé visible el mundo de origen** para el servidor destino, en solo lectura. En Linux, un bind
+**Hacé visible el mundo de origen** para el servidor destino, en solo lectura. En Linux, un bind
 mount al lado de la carpeta del mundo:
 
 ```bash
@@ -132,7 +148,7 @@ Metelo en `/etc/fstab` con `nofail` para que un origen ausente nunca impida arra
 RegionCast nunca escribe en el origen, pero montarlo en solo lectura significa que un bug de este
 mod tampoco podría.
 
-**3. Arrancá el servidor una vez.** Escribe `config/regioncast.properties`:
+**Arrancá el servidor una vez.** Escribe `config/regioncast.properties`:
 
 ```properties
 # ruta a la carpeta del mundo del que copiar, relativa a la del mundo o absoluta
@@ -174,31 +190,7 @@ plugin de [MCDReforged](https://github.com/MCDReforged/MCDReforged) listo: copi�
 > cancela eso en cuanto ve el marcador, que es mientras el servidor todavía se está apagando: para
 > cuando corre `on_server_stop` la decisión ya está tomada.
 
-## Uso
-
-```
-/rc                    abre el mapa, o escribe el estado si no podés abrirlo
-/rc map                abre el mapa (necesita el mod cliente)
-/rc status             qué está desactualizado, qué hay en cola, qué backups hay
-/rc here               encola la región en la que estás parado
-/rc here chunk         encola solo el chunk en el que estás parado
-/rc add <dim> <x> <z>  encola una por índice, dimensión -1, 0 o 1
-/rc scan               relee el origen
-/rc list               qué hay en cola
-/rc clear              vacía la cola
-/rc run                copia todo, y reinicia
-/rc backups            lista las actualizaciones que se pueden deshacer
-/rc restore [n]        devuelve una, y reinicia
-```
-
-En el mapa: **click izquierdo** para encolar o desencolar lo que estés apuntando, **click derecho
-arrastrando** para moverte, **rueda** para el zoom. Alejado eso es una región; acercado, un chunk. Los colores son rojo si cambió desde la última copia, azul si
-nunca se copió, dorado si está en cola.
-
-La cola sobrevive a un reinicio, así que si el servidor se cae por otro motivo no te toca volver a
-hacer click en cuarenta regiones.
-
-## Cosas que te van a morder
+### Errores comunes
 
 - **No verifiques una copia comparando md5 entre los dos mundos.** Es exactamente la comparación
   que el ledger existe para evitar, y te va a decir que fallaron regiones que no fallaron: en el
@@ -230,9 +222,3 @@ CI en cada push.
 MIT. Ver [LICENSE](LICENSE).
 
 Parte de [W4VE](https://github.com/CodeW4VE), Ware 4 Vanilla Experience.
-
-## Compatibilidad y actualización
-
-Usá el jar correspondiente a **1.21 / 1.21.1** o **26.3**, junto con Fabric API para esa versión. Minecraft 26.3 necesita Java 25 y Fabric Loader 0.19.5 o superior; 1.21 necesita Java 21.
-
-Conservá `config/regioncast.properties`, los datos de sincronización del mundo, los backups y la caché del mapa. La cola y los registros de copia se mantienen al reiniciar; la actualización no copia regiones automáticamente.
