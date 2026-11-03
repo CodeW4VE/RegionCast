@@ -8,7 +8,7 @@ Keep a mirror server up to date by copying only the regions that changed, picked
 
 *[Leer en español](README_es.md)*
 
-<!-- screenshot: the map with the region grid, docs/map.png -->
+![The map: red regions changed since the last copy, gold is queued, blue was never copied](docs/map.png)
 
 - A map of the world where each tile is one region file: red changed since the last copy, blue
   never copied, gold queued. Zoom in to pick single chunks.

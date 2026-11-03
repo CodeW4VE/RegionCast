@@ -8,7 +8,7 @@ Mantené al día un servidor espejo copiando solo las regiones que cambiaron, el
 
 *[Read in English](README.md)*
 
-<!-- screenshot: el mapa con la cuadrícula de regiones, docs/map.png -->
+![El mapa: rojo cambió desde la última copia, dorado está en cola, azul nunca se copió](docs/map.png)
 
 - Un mapa del mundo donde cada casilla es un region file: rojo si cambió desde la última copia,
   azul si nunca se copió, dorado si está en cola. Acercando, elegís chunks sueltos.
